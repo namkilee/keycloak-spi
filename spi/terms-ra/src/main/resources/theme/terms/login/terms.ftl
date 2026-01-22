@@ -17,6 +17,8 @@
     .actions { margin-top:32px; text-align:right; }
     button { background:#0066ff; color:#fff; border:none; border-radius:4px; padding:10px 18px; font-size:14px; cursor:pointer; }
     button:hover { background:#0053d6; }
+    button:focus-visible, input:focus-visible, a:focus-visible { outline:2px solid #0053d6; outline-offset:2px; }
+    .required { color:#d92c2c; font-size:12px; margin-left:6px; }
   </style>
 </head>
 <body>
@@ -29,23 +31,30 @@
     </#if>
 
     <form method="post" action="${url.loginAction}">
-      <ul>
-        <#list terms as t>
-          <li>
-            <label>
-              <input type="checkbox" name="accepted" value="${t.id}">
-              <strong>${t.title}</strong>
-              <span class="meta">(version: ${t.version})</span>
-              <#if t.url?has_content>
-                &nbsp;·&nbsp;<a href="${t.url}" target="_blank" rel="noopener noreferrer">View</a>
-              </#if>
-              <#if !t.required>
-                <span class="optional">(optional)</span>
-              </#if>
-            </label>
-          </li>
-        </#list>
-      </ul>
+      <fieldset style="border:0; padding:0; margin:0;">
+        <legend class="sr-only" style="position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden;">
+          Terms acceptance
+        </legend>
+        <ul>
+          <#list terms as t>
+            <li>
+              <label>
+                <input type="checkbox" name="accepted" value="${t.id}">
+                <strong>${t.title}</strong>
+                <span class="meta">(version: ${t.version})</span>
+                <#if t.url?has_content>
+                  &nbsp;·&nbsp;<a href="${t.url}" target="_blank" rel="noopener noreferrer">View</a>
+                </#if>
+                <#if t.required>
+                  <span class="required">(required)</span>
+                <#else>
+                  <span class="optional">(optional)</span>
+                </#if>
+              </label>
+            </li>
+          </#list>
+        </ul>
+      </fieldset>
       <div class="actions">
         <button type="submit">Accept and continue</button>
       </div>
