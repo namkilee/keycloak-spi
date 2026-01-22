@@ -1,6 +1,7 @@
 package com.example.keycloak.mappers;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import org.jboss.logging.Logger;
 import org.keycloak.models.*;
 import org.keycloak.protocol.oidc.mappers.AbstractOIDCProtocolMapper;
 import org.keycloak.protocol.oidc.mappers.OIDCAccessTokenMapper;
@@ -25,6 +26,9 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
   private static final String CFG_USE_AUTO_CLIENT_KEY = "mapping.client.autoKey";
   private static final String CFG_CLIENT_ATTR_KEY = "mapping.client.key";
   private static final String CFG_FALLBACK_ORIGINAL = "fallback.original";
+  private static final String CFG_MULTI_VALUE = "source.user.attribute.multi";
+
+  private static final Logger LOG = Logger.getLogger(ValueTransformProtocolMapper.class);
 
   private static final List<ProviderConfigProperty> CONFIG_PROPERTIES;
 
@@ -79,6 +83,14 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
     p6.setDefaultValue("true");
     props.add(p6);
 
+    ProviderConfigProperty p7 = new ProviderConfigProperty();
+    p7.setName(CFG_MULTI_VALUE);
+    p7.setLabel("Allow multi-value source attribute");
+    p7.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+    p7.setHelpText("If enabled, maps all values from a multi-value user attribute and writes a list claim.");
+    p7.setDefaultValue("false");
+    props.add(p7);
+
     OIDCAttributeMapperHelper.addIncludeInTokensConfig(props, ValueTransformProtocolMapper.class);
 
     CONFIG_PROPERTIES = Collections.unmodifiableList(props);
@@ -101,25 +113,47 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
 
     String sourceAttr = getConfig(mapperModel, CFG_SOURCE_USER_ATTR, "dept_code");
     String targetClaim = getConfig(mapperModel, CFG_TARGET_CLAIM, "dept");
+    boolean allowMulti = Boolean.parseBoolean(getConfig(mapperModel, CFG_MULTI_VALUE, "false"));
 
-    String raw = user.getFirstAttribute(sourceAttr);
-    if (raw == null || raw.isBlank()) return;
+    List<String> rawValues = Optional.ofNullable(user.getAttributes().get(sourceAttr))
+        .orElse(List.of());
+    if (rawValues.isEmpty()) return;
 
     Map<String, String> mapping = loadMapping(mapperModel, clientSessionCtx, sourceAttr);
 
-    String mapped = mapping.get(raw);
     boolean fallbackOriginal = Boolean.parseBoolean(getConfig(mapperModel, CFG_FALLBACK_ORIGINAL, "true"));
 
-    String finalValue;
-    if (mapped != null && !mapped.isBlank()) {
-      finalValue = mapped;
-    } else if (fallbackOriginal) {
-      finalValue = raw;
-    } else {
+    if (!allowMulti) {
+      String raw = rawValues.get(0);
+      if (raw == null || raw.isBlank()) return;
+      String mapped = mapping.get(raw);
+
+      String finalValue;
+      if (mapped != null && !mapped.isBlank()) {
+        finalValue = mapped;
+      } else if (fallbackOriginal) {
+        finalValue = raw;
+      } else {
+        return;
+      }
+      token.getOtherClaims().put(targetClaim, finalValue);
       return;
     }
 
-    token.getOtherClaims().put(targetClaim, finalValue);
+    List<String> mappedValues = new ArrayList<>();
+    for (String raw : rawValues) {
+      if (raw == null || raw.isBlank()) continue;
+      String mapped = mapping.get(raw);
+      if (mapped != null && !mapped.isBlank()) {
+        mappedValues.add(mapped);
+      } else if (fallbackOriginal) {
+        mappedValues.add(raw);
+      }
+    }
+
+    if (!mappedValues.isEmpty()) {
+      token.getOtherClaims().put(targetClaim, mappedValues);
+    }
   }
 
   private static String getConfig(ProtocolMapperModel model, String key, String defaultVal) {
@@ -163,6 +197,7 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
         Map<String, String> m = JsonSerialization.readValue(s, new TypeReference<Map<String, String>>() {});
         return (m == null) ? Map.of() : m;
       } catch (IOException e) {
+        LOG.warnf("Failed to parse JSON mapping for protocol mapper: %s", e.getMessage());
         return Map.of();
       }
     }
@@ -173,7 +208,10 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
       String p = pair.trim();
       if (p.isEmpty()) continue;
       int idx = p.indexOf(':');
-      if (idx <= 0 || idx == p.length() - 1) continue;
+      if (idx <= 0 || idx == p.length() - 1) {
+        LOG.warnf("Skipping malformed mapping pair: '%s'", p);
+        continue;
+      }
       String k = p.substring(0, idx).trim();
       String v = p.substring(idx + 1).trim();
       if (!k.isEmpty() && !v.isEmpty()) map.put(k, v);
