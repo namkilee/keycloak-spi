@@ -11,3 +11,12 @@ client_name         = "Sample App"
 client_root_url     = "https://app.dev.example.com"
 client_redirect_uris = ["https://app.dev.example.com/*"]
 client_web_origins   = ["https://app.dev.example.com"]
+
+saml_idp_alias            = "corp-saml"
+saml_idp_display_name     = "Corp SAML"
+saml_entity_id            = "https://sso.dev.example.com/metadata"
+saml_sso_url              = "https://sso.dev.example.com/saml/sso"
+saml_slo_url              = "https://sso.dev.example.com/saml/slo"
+saml_signing_certificate  = "-----BEGIN CERTIFICATE-----\nMIID...snip...\n-----END CERTIFICATE-----"
+saml_enabled              = true
+saml_trust_email          = true

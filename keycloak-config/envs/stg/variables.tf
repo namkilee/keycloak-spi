@@ -42,3 +42,35 @@ variable "client_redirect_uris" {
 variable "client_web_origins" {
   type = list(string)
 }
+
+variable "saml_idp_alias" {
+  type = string
+}
+
+variable "saml_idp_display_name" {
+  type = string
+}
+
+variable "saml_entity_id" {
+  type = string
+}
+
+variable "saml_sso_url" {
+  type = string
+}
+
+variable "saml_slo_url" {
+  type = string
+}
+
+variable "saml_signing_certificate" {
+  type = string
+}
+
+variable "saml_enabled" {
+  type = bool
+}
+
+variable "saml_trust_email" {
+  type = bool
+}

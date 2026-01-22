@@ -85,3 +85,15 @@ resource "keycloak_openid_client_default_scopes" "app" {
     module.client_scopes.claims_name,
   ]
 }
+
+resource "keycloak_saml_identity_provider" "saml_idp" {
+  realm                     = keycloak_realm.realm.id
+  alias                     = var.saml_idp_alias
+  display_name              = var.saml_idp_display_name
+  entity_id                 = var.saml_entity_id
+  single_sign_on_service_url = var.saml_sso_url
+  single_logout_service_url  = var.saml_slo_url
+  signing_certificate       = var.saml_signing_certificate
+  enabled                   = var.saml_enabled
+  trust_email               = var.saml_trust_email
+}
