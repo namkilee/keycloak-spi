@@ -115,8 +115,9 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
     String targetClaim = getConfig(mapperModel, CFG_TARGET_CLAIM, "dept");
     boolean allowMulti = Boolean.parseBoolean(getConfig(mapperModel, CFG_MULTI_VALUE, "false"));
 
-    List<String> rawValues = user.getAttribute(sourceAttr);
-    if (rawValues == null || rawValues.isEmpty()) return;
+    List<String> rawValues = Optional.ofNullable(user.getAttributes().get(sourceAttr))
+        .orElse(List.of());
+    if (rawValues.isEmpty()) return;
 
     Map<String, String> mapping = loadMapping(mapperModel, clientSessionCtx, sourceAttr);
 
