@@ -1,0 +1,22 @@
+keycloak_url           = "https://keycloak.prd.example.com"
+keycloak_admin_realm   = "master"
+keycloak_client_id     = "terraform"
+keycloak_client_secret = "replace-me"
+
+realm_name         = "main"
+realm_display_name = "Main"
+
+client_id           = "app"
+client_name         = "Sample App"
+client_root_url     = "https://app.prd.example.com"
+client_redirect_uris = ["https://app.prd.example.com/*"]
+client_web_origins   = ["https://app.prd.example.com"]
+
+saml_idp_alias            = "corp-saml"
+saml_idp_display_name     = "Corp SAML"
+saml_entity_id            = "https://sso.prd.example.com/metadata"
+saml_sso_url              = "https://sso.prd.example.com/saml/sso"
+saml_slo_url              = "https://sso.prd.example.com/saml/slo"
+saml_signing_certificate  = "-----BEGIN CERTIFICATE-----\nMIID...snip...\n-----END CERTIFICATE-----"
+saml_enabled              = true
+saml_trust_email          = true
