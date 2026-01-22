@@ -1,0 +1,13 @@
+keycloak_url           = "https://keycloak.dev.example.com"
+keycloak_admin_realm   = "master"
+keycloak_client_id     = "terraform"
+keycloak_client_secret = "replace-me"
+
+realm_name         = "main"
+realm_display_name = "Main"
+
+client_id           = "app"
+client_name         = "Sample App"
+client_root_url     = "https://app.dev.example.com"
+client_redirect_uris = ["https://app.dev.example.com/*"]
+client_web_origins   = ["https://app.dev.example.com"]

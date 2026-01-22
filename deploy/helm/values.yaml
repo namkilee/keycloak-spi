@@ -1,0 +1,25 @@
+image:
+  repository: ghcr.io/example/keycloak-spi
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+extraEnvVars:
+  - name: KC_DB
+    value: postgres
+  - name: KC_DB_URL_HOST
+    value: postgresql
+  - name: KC_DB_URL_DATABASE
+    value: keycloak
+  - name: KC_DB_USERNAME
+    value: keycloak
+  - name: KC_DB_PASSWORD
+    value: keycloak
+  - name: KC_HOSTNAME
+    value: keycloak.example.com
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  hostname: keycloak.example.com
