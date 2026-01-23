@@ -24,11 +24,12 @@ data "keycloak_role" "realm_admin" {
   name     = "admin"
 }
 
-resource "keycloak_user_realm_roles" "sa_realm_admin" {
-  count    = var.assign_global_admin ? 1 : 0
-  realm_id = var.keycloak_admin_realm
-  user_id  = data.keycloak_openid_client_service_account_user.sa.id
-  role_ids = [data.keycloak_role.realm_admin[0].id]
+resource "keycloak_openid_client_service_account_realm_role" "sa_realm_admin" {
+  count = var.assign_global_admin ? 1 : 0
+
+  realm_id                = var.keycloak_admin_realm
+  service_account_user_id = data.keycloak_openid_client_service_account_user.sa.id
+  role                    = data.keycloak_role.realm_admin[0].name
 }
 
 data "keycloak_openid_client" "realm_management" {
@@ -37,18 +38,13 @@ data "keycloak_openid_client" "realm_management" {
   client_id = "realm-management"
 }
 
-data "keycloak_role" "realm_mgmt_roles" {
-  for_each = var.assign_global_admin ? toset([]) : toset(var.realm_management_roles)
-
-  realm_id  = var.keycloak_admin_realm
-  client_id = data.keycloak_openid_client.realm_management[0].id
-  name      = each.value
-}
-
-resource "keycloak_openid_client_service_account_realm_role" "sa_realm_mgmt_roles" {
-  count = var.assign_global_admin ? 0 : 1
+resource "keycloak_openid_client_service_account_client_role" "sa_realm_mgmt_roles" {
+  for_each = var.assign_global_admin ? {} : {
+    for role_name in var.realm_management_roles : role_name => role_name
+  }
 
   realm_id                = var.keycloak_admin_realm
   service_account_user_id = data.keycloak_openid_client_service_account_user.sa.id
-  role_ids                = [for r in data.keycloak_role.realm_mgmt_roles : r.id]
+  client_id               = data.keycloak_openid_client.realm_management[0].id
+  role                    = each.value
 }
