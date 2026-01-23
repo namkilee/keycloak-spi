@@ -32,9 +32,11 @@ module "client_scopes" {
     "tc.term.privacy.title"    = "Privacy Policy"
     "tc.term.privacy.version"  = "v1"
     "tc.term.privacy.url"      = "https://example.com/privacy"
+    "tc.term.privacy.required" = "true"
     "tc.term.claims.title"     = "Claims Processing"
     "tc.term.claims.version"   = "v1"
     "tc.term.claims.url"       = "https://example.com/claims"
+    "tc.term.claims.required"  = "true"
   }
 
   mapper_name = "dept-transform"
