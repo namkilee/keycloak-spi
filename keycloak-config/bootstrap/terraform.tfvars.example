@@ -1,0 +1,16 @@
+keycloak_url            = "https://keycloak.example.com"
+keycloak_admin_realm    = "master"
+keycloak_admin_username = "admin"
+keycloak_admin_password = "replace-me"
+
+terraform_client_id   = "terraform"
+terraform_client_name = "Terraform Provisioner"
+
+assign_global_admin = false
+realm_management_roles = [
+  "view-realm",
+  "manage-clients",
+  "manage-users",
+]
+
+client_secret_override = null
