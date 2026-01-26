@@ -35,13 +35,12 @@ provider "keycloak" {
   realm         = local.resolved_auth_realm
 }
 
-module "client_scopes" {
-  source = "../../modules/scopes"
+module "realm_clients" {
+  source = "../../modules/realm-clients"
 
   realm_id          = local.resolved_target_realm
   terms_scope_name  = "terms"
   claims_scope_name = "claims"
-
   terms_attributes = {
     "tc.required"              = "privacy,claims"
     "tc.term.privacy.title"    = "Privacy Policy"
@@ -53,68 +52,30 @@ module "client_scopes" {
     "tc.term.claims.url"       = "https://example.com/claims"
     "tc.term.claims.required"  = "true"
   }
-
-  mapper_name = "dept-transform"
+  mapper_name   = "dept-transform"
   mapper_config = {
-    "source.user.attribute"      = "dept_code"
-    "target.claim.name"          = "dept"
-    "mapping.inline"             = "A01:finance,A02:people"
-    "mapping.client.autoKey"     = "true"
-    "mapping.client.key"         = "dept.map"
-    "fallback.original"          = "true"
+    "source.user.attribute"       = "dept_code"
+    "target.claim.name"           = "dept"
+    "mapping.inline"              = "A01:finance,A02:people"
+    "mapping.client.autoKey"      = "true"
+    "mapping.client.key"          = "dept.map"
+    "fallback.original"           = "true"
     "source.user.attribute.multi" = "false"
-    "access.token.claim"         = "true"
-    "id.token.claim"             = "true"
-    "userinfo.token.claim"       = "true"
-    "claim.name"                 = "dept"
-    "jsonType.label"             = "String"
+    "access.token.claim"          = "true"
+    "id.token.claim"              = "true"
+    "userinfo.token.claim"        = "true"
+    "claim.name"                  = "dept"
+    "jsonType.label"              = "String"
   }
-}
 
-resource "keycloak_required_action" "terms_required" {
-  realm_id    = local.resolved_target_realm
-  alias       = "terms-required-action"
-  name        = "Terms & Conditions (multi)"
-  provider_id = "terms-required-action"
-  enabled     = true
-  default_action = false
-}
+  clients = var.clients
 
-resource "keycloak_openid_client" "app" {
-  for_each = var.clients
-
-  realm_id                     = local.resolved_target_realm
-  client_id                    = each.value.client_id
-  name                         = each.value.name
-  enabled                      = true
-  access_type                  = "CONFIDENTIAL"
-  standard_flow_enabled        = true
-  direct_access_grants_enabled = true
-  root_url                     = each.value.root_url
-  base_url                     = each.value.root_url
-  valid_redirect_uris          = each.value.redirect_uris
-  web_origins                  = each.value.web_origins
-}
-
-resource "keycloak_openid_client_default_scopes" "app" {
-  for_each = keycloak_openid_client.app
-
-  realm_id  = local.resolved_target_realm
-  client_id = each.value.id
-  default_scopes = [
-    module.client_scopes.terms_name,
-    module.client_scopes.claims_name,
-  ]
-}
-
-resource "keycloak_saml_identity_provider" "saml_idp" {
-  realm                     = local.resolved_target_realm
-  alias                     = var.saml_idp_alias
-  display_name              = var.saml_idp_display_name
-  entity_id                 = var.saml_entity_id
-  single_sign_on_service_url = var.saml_sso_url
-  single_logout_service_url  = var.saml_slo_url
-  signing_certificate       = var.saml_signing_certificate
-  enabled                   = var.saml_enabled
-  trust_email               = var.saml_trust_email
+  saml_idp_alias           = var.saml_idp_alias
+  saml_idp_display_name    = var.saml_idp_display_name
+  saml_entity_id           = var.saml_entity_id
+  saml_sso_url             = var.saml_sso_url
+  saml_slo_url             = var.saml_slo_url
+  saml_signing_certificate = var.saml_signing_certificate
+  saml_enabled             = var.saml_enabled
+  saml_trust_email         = var.saml_trust_email
 }
