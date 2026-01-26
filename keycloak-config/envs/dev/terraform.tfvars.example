@@ -1,9 +1,9 @@
 keycloak_url           = "https://keycloak.dev.example.com"
-# bootstrap output: bootstrap_realm_name (or the realm name you created)
-keycloak_auth_realm    = "terraform"
-# bootstrap output: terraform_client_id / terraform_client_secret
-keycloak_client_id     = "terraform"
-keycloak_client_secret = "replace-me"
+# Optional: override if you don't want to use bootstrap realm output.
+# keycloak_auth_realm    = "terraform"
+# Optional: override if you don't want to use bootstrap outputs.
+# keycloak_client_id     = "terraform"
+# keycloak_client_secret = "replace-me"
 
 bootstrap_state_bucket     = "keycloak-terraform-state"
 bootstrap_state_key        = "bootstrap/terraform.tfstate"

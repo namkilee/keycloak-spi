@@ -8,11 +8,13 @@ variable "keycloak_auth_realm" {
 }
 
 variable "keycloak_client_id" {
-  type = string
+  type    = string
+  default = null
 }
 
 variable "keycloak_client_secret" {
-  type = string
+  type      = string
+  default   = null
   sensitive = true
 }
 
