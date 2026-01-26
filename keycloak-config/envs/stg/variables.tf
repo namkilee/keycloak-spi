@@ -47,24 +47,15 @@ variable "bootstrap_state_secret_key" {
   sensitive = true
 }
 
-variable "client_id" {
-  type = string
-}
-
-variable "client_name" {
-  type = string
-}
-
-variable "client_root_url" {
-  type = string
-}
-
-variable "client_redirect_uris" {
-  type = list(string)
-}
-
-variable "client_web_origins" {
-  type = list(string)
+variable "clients" {
+  type = map(object({
+    client_id     = string
+    name          = string
+    root_url      = string
+    redirect_uris = list(string)
+    web_origins   = list(string)
+  }))
+  description = "Map of client definitions to provision in the target realm."
 }
 
 variable "saml_idp_alias" {
