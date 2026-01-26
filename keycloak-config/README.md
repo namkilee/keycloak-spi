@@ -23,6 +23,11 @@ cp terraform.tfvars.example terraform.tfvars
 terraform init
 ```
 
+> Note: `envs/*` reads the bootstrap state via the S3/MinIO backend configured in each
+> environment. Terraform does not support “check local state first, then S3” fallback
+> for `terraform_remote_state`, so the bootstrap state must be present in the configured
+> backend (or the configuration must be changed to use a local backend explicitly).
+
 3. Apply:
 
 ```
