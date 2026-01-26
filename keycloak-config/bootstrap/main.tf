@@ -1,5 +1,11 @@
+resource "keycloak_realm" "bootstrap" {
+  realm        = var.bootstrap_realm_name
+  display_name = var.bootstrap_realm_display_name
+  enabled      = true
+}
+
 resource "keycloak_openid_client" "terraform" {
-  realm_id = var.keycloak_admin_realm
+  realm_id = keycloak_realm.bootstrap.id
 
   client_id = var.terraform_client_id
   name      = var.terraform_client_name
@@ -17,7 +23,7 @@ resource "keycloak_openid_client" "terraform" {
 
 # built-in realm-management client 조회
 data "keycloak_openid_client" "realm_management" {
-  realm_id  = var.keycloak_admin_realm
+  realm_id  = keycloak_realm.bootstrap.id
   client_id = "realm-management"
 }
 
@@ -29,7 +35,7 @@ resource "keycloak_openid_client_service_account_role" "sa_roles" {
     : var.realm_management_roles
   )
 
-  realm_id                = var.keycloak_admin_realm
+  realm_id                = keycloak_realm.bootstrap.id
   client_id               = data.keycloak_openid_client.realm_management.id
   service_account_user_id = keycloak_openid_client.terraform.service_account_user_id
 

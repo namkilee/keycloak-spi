@@ -6,7 +6,7 @@ It is structured as a small environment layout (dev/stg/prd) that uses a MinIO (
 ## Structure
 
 - `modules/scopes`: Creates the `terms` and `claims` client scopes, plus the `value-transform-protocol-mapper`.
-- `envs/dev|stg|prd`: Environment-specific Terraform roots with MinIO backend configuration, realm + client creation, required action enablement, default scope attachment, and SAML IdP configuration.
+- `envs/dev|stg|prd`: Environment-specific Terraform roots with MinIO backend configuration, client/IdP configuration applied to an existing realm, required action enablement, and default scope attachment. These envs read the bootstrap state to discover the realm id.
 
 ## Usage
 
