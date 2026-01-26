@@ -15,11 +15,22 @@ bootstrap_state_secret_key = "minio123"
 # Optional: override the realm to configure if different from bootstrap outputs.
 # target_realm = "custom-realm"
 
-client_id           = "app"
-client_name         = "Sample App"
-client_root_url     = "https://app.dev.example.com"
-client_redirect_uris = ["https://app.dev.example.com/*"]
-client_web_origins   = ["https://app.dev.example.com"]
+clients = {
+  app = {
+    client_id     = "app"
+    name          = "Sample App"
+    root_url      = "https://app.dev.example.com"
+    redirect_uris = ["https://app.dev.example.com/*"]
+    web_origins   = ["https://app.dev.example.com"]
+  }
+  app_secondary = {
+    client_id     = "app-secondary"
+    name          = "Sample App Secondary"
+    root_url      = "https://app2.dev.example.com"
+    redirect_uris = ["https://app2.dev.example.com/*"]
+    web_origins   = ["https://app2.dev.example.com"]
+  }
+}
 
 saml_idp_alias            = "corp-saml"
 saml_idp_display_name     = "Corp SAML"
