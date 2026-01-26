@@ -18,11 +18,6 @@ variable "keycloak_client_secret" {
   sensitive = true
 }
 
-variable "target_realm" {
-  type    = string
-  default = null
-}
-
 variable "bootstrap_state_bucket" {
   type = string
 }

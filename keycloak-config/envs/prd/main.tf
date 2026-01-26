@@ -2,7 +2,7 @@ terraform {
   required_providers {
     keycloak = {
       source  = "keycloak/keycloak"
-      version = ">= 4.0.0"
+      version = "~> 5.4"
     }
   }
 }
@@ -24,8 +24,10 @@ data "terraform_remote_state" "bootstrap" {
 }
 
 locals {
-  resolved_target_realm = coalesce(var.target_realm, data.terraform_remote_state.bootstrap.outputs.bootstrap_realm_id)
-  resolved_auth_realm   = coalesce(var.keycloak_auth_realm, local.resolved_target_realm)
+  resolved_auth_realm = coalesce(
+    var.keycloak_auth_realm,
+    data.terraform_remote_state.bootstrap.outputs.bootstrap_realm_id
+  )
 }
 
 provider "keycloak" {
@@ -38,7 +40,7 @@ provider "keycloak" {
 module "realm_clients" {
   source = "../../modules/realm-clients"
 
-  realm_id          = local.resolved_target_realm
+  realm_id          = data.terraform_remote_state.bootstrap.outputs.bootstrap_realm_id
   terms_scope_name  = "terms"
   claims_scope_name = "claims"
   terms_attributes = {

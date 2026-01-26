@@ -12,9 +12,6 @@ bootstrap_state_endpoint   = "https://minio.example.com"
 bootstrap_state_access_key = "minio"
 bootstrap_state_secret_key = "minio123"
 
-# Optional: override the realm to configure if different from bootstrap outputs.
-# target_realm = "custom-realm"
-
 clients = {
   app = {
     client_id     = "app"
