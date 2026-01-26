@@ -81,22 +81,26 @@ resource "keycloak_required_action" "terms_required" {
 }
 
 resource "keycloak_openid_client" "app" {
+  for_each = var.clients
+
   realm_id                     = local.resolved_target_realm
-  client_id                    = var.client_id
-  name                         = var.client_name
+  client_id                    = each.value.client_id
+  name                         = each.value.name
   enabled                      = true
   access_type                  = "CONFIDENTIAL"
   standard_flow_enabled        = true
   direct_access_grants_enabled = true
-  root_url                     = var.client_root_url
-  base_url                     = var.client_root_url
-  valid_redirect_uris          = var.client_redirect_uris
-  web_origins                  = var.client_web_origins
+  root_url                     = each.value.root_url
+  base_url                     = each.value.root_url
+  valid_redirect_uris          = each.value.redirect_uris
+  web_origins                  = each.value.web_origins
 }
 
 resource "keycloak_openid_client_default_scopes" "app" {
+  for_each = keycloak_openid_client.app
+
   realm_id  = local.resolved_target_realm
-  client_id = keycloak_openid_client.app.id
+  client_id = each.value.id
   default_scopes = [
     module.client_scopes.terms_name,
     module.client_scopes.claims_name,
