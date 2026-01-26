@@ -1,3 +1,4 @@
+# Required settings
 keycloak_url            = "https://keycloak.example.com"
 keycloak_admin_realm    = "master"
 keycloak_admin_username = "admin"
