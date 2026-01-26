@@ -1,5 +1,7 @@
 keycloak_url           = "https://keycloak.dev.example.com"
+# bootstrap output: bootstrap_realm_name (or the realm name you created)
 keycloak_auth_realm    = "terraform"
+# bootstrap output: terraform_client_id / terraform_client_secret
 keycloak_client_id     = "terraform"
 keycloak_client_secret = "replace-me"
 
@@ -9,6 +11,9 @@ bootstrap_state_region     = "us-east-1"
 bootstrap_state_endpoint   = "https://minio.example.com"
 bootstrap_state_access_key = "minio"
 bootstrap_state_secret_key = "minio123"
+
+# Optional: override the realm to configure if different from bootstrap outputs.
+# target_realm = "custom-realm"
 
 client_id           = "app"
 client_name         = "Sample App"
