@@ -1,21 +1,25 @@
+# Required settings
 keycloak_url            = "https://keycloak.example.com"
-keycloak_admin_realm    = "master"
 keycloak_admin_username = "admin"
 keycloak_admin_password = "replace-me"
 
-bootstrap_realm_name         = "terraform"
-bootstrap_realm_display_name = "Terraform Realm"
+bootstrap_realm_name = "terraform"
 
-terraform_client_id   = "terraform"
-terraform_client_name = "Terraform Provisioner"
+# Optional overrides (defaults shown)
+# keycloak_admin_realm = "master"
 
-assign_global_admin = false
-realm_management_roles = [
-  "view-realm",
-  "manage-clients",
-  "manage-users",
-  "manage-identity-providers",
-  "manage-realm",
-]
+# bootstrap_realm_display_name = "Terraform Realm"
 
-client_secret_override = null
+# terraform_client_id   = "terraform"
+# terraform_client_name = "Terraform Provisioner"
+
+# assign_global_admin = false
+# realm_management_roles = [
+#   "view-realm",
+#   "manage-clients",
+#   "manage-users",
+#   "manage-identity-providers",
+#   "manage-realm",
+# ]
+
+# client_secret_override = null
