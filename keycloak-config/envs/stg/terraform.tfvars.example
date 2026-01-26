@@ -1,10 +1,14 @@
 keycloak_url           = "https://keycloak.stg.example.com"
-keycloak_admin_realm   = "master"
+keycloak_auth_realm    = "terraform"
 keycloak_client_id     = "terraform"
 keycloak_client_secret = "replace-me"
 
-realm_name         = "main"
-realm_display_name = "Main"
+bootstrap_state_bucket     = "keycloak-terraform-state"
+bootstrap_state_key        = "bootstrap/terraform.tfstate"
+bootstrap_state_region     = "us-east-1"
+bootstrap_state_endpoint   = "https://minio.example.com"
+bootstrap_state_access_key = "minio"
+bootstrap_state_secret_key = "minio123"
 
 client_id           = "app"
 client_name         = "Sample App"

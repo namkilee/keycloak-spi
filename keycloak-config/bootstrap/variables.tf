@@ -9,6 +9,17 @@ variable "keycloak_admin_realm" {
   default     = "master"
 }
 
+variable "bootstrap_realm_name" {
+  description = "New realm name to create for Terraform-managed resources"
+  type        = string
+}
+
+variable "bootstrap_realm_display_name" {
+  description = "Display name for the new realm"
+  type        = string
+  default     = null
+}
+
 variable "keycloak_admin_username" {
   description = "Bootstrap admin username"
   type        = string
@@ -46,6 +57,8 @@ variable "realm_management_roles" {
     "view-realm",
     "manage-clients",
     "manage-users",
+    "manage-identity-providers",
+    "manage-realm",
   ]
 }
 

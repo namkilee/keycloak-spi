@@ -2,8 +2,9 @@ variable "keycloak_url" {
   type = string
 }
 
-variable "keycloak_admin_realm" {
-  type = string
+variable "keycloak_auth_realm" {
+  type    = string
+  default = null
 }
 
 variable "keycloak_client_id" {
@@ -15,12 +16,35 @@ variable "keycloak_client_secret" {
   sensitive = true
 }
 
-variable "realm_name" {
+variable "target_realm" {
+  type    = string
+  default = null
+}
+
+variable "bootstrap_state_bucket" {
   type = string
 }
 
-variable "realm_display_name" {
+variable "bootstrap_state_key" {
   type = string
+}
+
+variable "bootstrap_state_region" {
+  type = string
+}
+
+variable "bootstrap_state_endpoint" {
+  type = string
+}
+
+variable "bootstrap_state_access_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "bootstrap_state_secret_key" {
+  type      = string
+  sensitive = true
 }
 
 variable "client_id" {
