@@ -41,34 +41,6 @@ module "realm_clients" {
   source = "../../modules/realm-clients"
 
   realm_id          = data.terraform_remote_state.bootstrap.outputs.bootstrap_realm_id
-  terms_scope_name  = "terms"
-  claims_scope_name = "claims"
-  terms_attributes = {
-    "tc.required"              = "privacy,claims"
-    "tc.term.privacy.title"    = "Privacy Policy"
-    "tc.term.privacy.version"  = "v1"
-    "tc.term.privacy.url"      = "https://example.com/privacy"
-    "tc.term.privacy.required" = "true"
-    "tc.term.claims.title"     = "Claims Processing"
-    "tc.term.claims.version"   = "v1"
-    "tc.term.claims.url"       = "https://example.com/claims"
-    "tc.term.claims.required"  = "true"
-  }
-  mapper_name   = "dept-transform"
-  mapper_config = {
-    "source.user.attribute"       = "dept_code"
-    "target.claim.name"           = "dept"
-    "mapping.inline"              = "A01:finance,A02:people"
-    "mapping.client.autoKey"      = "true"
-    "mapping.client.key"          = "dept.map"
-    "fallback.original"           = "true"
-    "source.user.attribute.multi" = "false"
-    "access.token.claim"          = "true"
-    "id.token.claim"              = "true"
-    "userinfo.token.claim"        = "true"
-    "claim.name"                  = "dept"
-    "jsonType.label"              = "String"
-  }
 
   clients = var.clients
 

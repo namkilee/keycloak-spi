@@ -1,14 +1,8 @@
 module "client_scopes" {
   source = "../scopes"
 
-  realm_id          = var.realm_id
-  terms_scope_name  = var.terms_scope_name
-  claims_scope_name = var.claims_scope_name
-
-  terms_attributes = var.terms_attributes
-
-  mapper_name   = var.mapper_name
-  mapper_config = var.mapper_config
+  realm_id = var.realm_id
+  clients  = var.clients
 }
 
 resource "keycloak_required_action" "terms_required" {
@@ -42,9 +36,10 @@ resource "keycloak_openid_client_default_scopes" "app" {
   realm_id  = var.realm_id
   client_id = each.value.id
   default_scopes = [
-    module.client_scopes.terms_name,
-    module.client_scopes.claims_name,
+    for scope_key in each.value.default_scopes :
+    module.client_scopes.scope_names[each.key][scope_key]
   ]
+  depends_on = [module.client_scopes]
 }
 
 resource "keycloak_saml_identity_provider" "saml_idp" {

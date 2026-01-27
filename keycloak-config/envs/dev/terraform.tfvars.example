@@ -19,6 +19,45 @@ clients = {
     root_url      = "https://app.dev.example.com"
     redirect_uris = ["https://app.dev.example.com/*"]
     web_origins   = ["https://app.dev.example.com"]
+    scopes = {
+      terms = {
+        attributes = {
+          "tc.required"              = "privacy,claims"
+          "tc.term.privacy.title"    = "Privacy Policy"
+          "tc.term.privacy.version"  = "v1"
+          "tc.term.privacy.url"      = "https://example.com/privacy"
+          "tc.term.privacy.required" = "true"
+          "tc.term.claims.title"     = "Claims Processing"
+          "tc.term.claims.version"   = "v1"
+          "tc.term.claims.url"       = "https://example.com/claims"
+          "tc.term.claims.required"  = "true"
+        }
+      }
+      claims = {
+        attributes = {}
+      }
+    }
+    default_scopes = ["terms", "claims"]
+    mappers = [
+      {
+        name  = "dept-transform"
+        scope = "claims"
+        config = {
+          "source.user.attribute"       = "dept_code"
+          "target.claim.name"           = "dept"
+          "mapping.inline"              = "A01:finance,A02:people"
+          "mapping.client.autoKey"      = "true"
+          "mapping.client.key"          = "dept.map"
+          "fallback.original"           = "true"
+          "source.user.attribute.multi" = "false"
+          "access.token.claim"          = "true"
+          "id.token.claim"              = "true"
+          "userinfo.token.claim"        = "true"
+          "claim.name"                  = "dept"
+          "jsonType.label"              = "String"
+        }
+      }
+    ]
   }
   app_secondary = {
     client_id     = "app-secondary"
@@ -26,6 +65,23 @@ clients = {
     root_url      = "https://app2.dev.example.com"
     redirect_uris = ["https://app2.dev.example.com/*"]
     web_origins   = ["https://app2.dev.example.com"]
+    scopes = {
+      terms = {
+        attributes = {
+          "tc.required"              = "privacy,claims"
+          "tc.term.privacy.title"    = "Privacy Policy"
+          "tc.term.privacy.version"  = "v1"
+          "tc.term.privacy.url"      = "https://example.com/privacy"
+          "tc.term.privacy.required" = "true"
+          "tc.term.claims.title"     = "Claims Processing"
+          "tc.term.claims.version"   = "v1"
+          "tc.term.claims.url"       = "https://example.com/claims"
+          "tc.term.claims.required"  = "true"
+        }
+      }
+    }
+    default_scopes = ["terms"]
+    mappers = []
   }
 }
 
