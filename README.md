@@ -5,6 +5,12 @@ This repository contains a multi-module Maven project that delivers Keycloak Ser
 - **Terms & Conditions Required Action** (`terms-ra`)
 - **Value Transform Protocol Mapper** (`claim-mappers`)
 
+## Repository Structure
+
+- `spi/`: Keycloak SPI 모듈 모음. 상세 내용은 [`spi/README.md`](spi/README.md)에서 확인한다.
+- `keycloak-config/`: Keycloak Terraform 구성과 부트스트랩 정의. 하위 부트스트랩 문서는 [`keycloak-config/README.md`](keycloak-config/README.md) 및 [`keycloak-config/bootstrap/README.md`](keycloak-config/bootstrap/README.md)에 있다.
+- `deploy/`: Docker 이미지, Helm 차트, 테마 배포 관련 리소스. 상세 내용은 [`deploy/README.md`](deploy/README.md)에서 확인한다.
+
 ## Modules
 
 ### Terms & Conditions Required Action (`terms-ra`)
