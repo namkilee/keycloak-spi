@@ -4,6 +4,7 @@ keycloak_url           = "https://keycloak.dev.example.com"
 # Optional: override if you don't want to use bootstrap outputs.
 # keycloak_client_id     = "terraform"
 # keycloak_client_secret = "replace-me"
+keycloak_container_name = "keycloak-dev"
 
 bootstrap_state_bucket     = "keycloak-terraform-state"
 bootstrap_state_key        = "bootstrap/terraform.tfstate"
@@ -22,6 +23,11 @@ clients = {
     scopes = {
       terms = {
         description = "Terms & Conditions"
+        terms_attributes = {
+          required = true
+          version  = "2026-01-16"
+          url      = "https://example.com/privacy"
+        }
       }
       claims = {
         description = "Claims scope"
@@ -29,32 +35,6 @@ clients = {
     }
     default_scopes = ["terms", "claims"]
     mappers = [
-      {
-        name            = "tc-required"
-        scope           = "terms"
-        protocol_mapper = "oidc-hardcoded-claim-mapper"
-        config = {
-          "claim.name"        = "tc.required"
-          "claim.value"       = "privacy,claims"
-          "jsonType.label"    = "String"
-          "access.token.claim" = "true"
-          "id.token.claim"     = "true"
-          "userinfo.token.claim" = "true"
-        }
-      },
-      {
-        name            = "tc-privacy-url"
-        scope           = "terms"
-        protocol_mapper = "oidc-hardcoded-claim-mapper"
-        config = {
-          "claim.name"        = "tc.term.privacy.url"
-          "claim.value"       = "https://example.com/privacy"
-          "jsonType.label"    = "String"
-          "access.token.claim" = "true"
-          "id.token.claim"     = "true"
-          "userinfo.token.claim" = "true"
-        }
-      },
       {
         name            = "dept-transform"
         scope           = "claims"
@@ -85,6 +65,10 @@ clients = {
     scopes = {
       terms = {
         description = "Terms & Conditions"
+        terms_attributes = {
+          required = true
+          version  = "2026-01-16"
+        }
       }
     }
     default_scopes = ["terms"]

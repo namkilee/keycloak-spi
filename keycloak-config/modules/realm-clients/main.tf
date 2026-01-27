@@ -3,6 +3,15 @@ module "client_scopes" {
 
   realm_id = var.realm_id
   clients  = var.clients
+  keycloak_url           = var.keycloak_url
+  keycloak_auth_realm    = var.keycloak_auth_realm
+  keycloak_client_id     = var.keycloak_client_id
+  keycloak_client_secret = var.keycloak_client_secret
+  kcadm_exec_mode        = var.kcadm_exec_mode
+  keycloak_kcadm_path    = var.keycloak_kcadm_path
+  keycloak_container_name = var.keycloak_container_name
+  keycloak_namespace     = var.keycloak_namespace
+  keycloak_pod_selector  = var.keycloak_pod_selector
 }
 
 resource "keycloak_required_action" "terms_required" {
