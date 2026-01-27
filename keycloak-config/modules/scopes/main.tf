@@ -79,45 +79,25 @@ resource "null_resource" "terms_scope_attributes" {
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-lc"]
-    command = <<EOT
-set -euo pipefail
-
-case "${var.kcadm_exec_mode}" in
-  docker)
-    if [ -z "${var.keycloak_container_name}" ]; then
-      echo "keycloak_container_name is required when kcadm_exec_mode=docker" >&2
-      exit 1
-    fi
-    KCADM_BASE=(docker exec "${var.keycloak_container_name}" "${var.keycloak_kcadm_path}")
-    ;;
-  kubectl)
-    if [ -z "${var.keycloak_namespace}" ] || [ -z "${var.keycloak_pod_selector}" ]; then
-      echo "keycloak_namespace and keycloak_pod_selector are required when kcadm_exec_mode=kubectl" >&2
-      exit 1
-    fi
-    POD="$(kubectl -n "${var.keycloak_namespace}" get pod -l "${var.keycloak_pod_selector}" -o jsonpath='{.items[0].metadata.name}')"
-    KCADM_BASE=(kubectl -n "${var.keycloak_namespace}" exec "$POD" -- "${var.keycloak_kcadm_path}")
-    ;;
-  *)
-    echo "Unsupported kcadm_exec_mode: ${var.kcadm_exec_mode}" >&2
-    exit 1
-    ;;
-esac
-
-"${KCADM_BASE[@]}" config credentials \
-  --server "${var.keycloak_url}" \
-  --realm "${var.keycloak_auth_realm}" \
-  --client "${var.keycloak_client_id}" \
-  --secret "${var.keycloak_client_secret}"
-
-"${KCADM_BASE[@]}" update "client-scopes/${self.triggers.scope_id}" -r "${var.realm_id}" \
-  -s 'attributes.tc.required=${self.triggers.tc_required}' \
-  -s 'attributes.tc.version=${self.triggers.tc_version}' \
-  ${self.triggers.tc_url:+-s 'attributes.tc.url=${self.triggers.tc_url}'} \
-  ${self.triggers.tc_template:+-s 'attributes.tc.template=${self.triggers.tc_template}'} \
-  ${self.triggers.tc_key:+-s 'attributes.tc.key=${self.triggers.tc_key}'}
-EOT
+    command = "${path.module}/scripts/terms_scope_attributes.sh"
+    environment = {
+      KCADM_EXEC_MODE        = var.kcadm_exec_mode
+      KCADM_PATH             = var.keycloak_kcadm_path
+      KEYCLOAK_CONTAINER_NAME = var.keycloak_container_name
+      KEYCLOAK_NAMESPACE     = var.keycloak_namespace
+      KEYCLOAK_POD_SELECTOR  = var.keycloak_pod_selector
+      KEYCLOAK_URL           = var.keycloak_url
+      KEYCLOAK_AUTH_REALM    = var.keycloak_auth_realm
+      KEYCLOAK_CLIENT_ID     = var.keycloak_client_id
+      KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
+      REALM_ID               = var.realm_id
+      SCOPE_ID               = self.triggers.scope_id
+      TC_REQUIRED            = self.triggers.tc_required
+      TC_VERSION             = self.triggers.tc_version
+      TC_URL                 = self.triggers.tc_url
+      TC_TEMPLATE            = self.triggers.tc_template
+      TC_KEY                 = self.triggers.tc_key
+    }
   }
-
   depends_on = [keycloak_openid_client_scope.scopes]
 }
