@@ -45,22 +45,27 @@ variable "keycloak_pod_selector" {
 
 variable "clients" {
   type = map(object({
-    client_id        = string
-    name             = string
-    root_url         = string
-    redirect_uris    = list(string)
-    web_origins      = list(string)
+    client_id     = string
+    name          = string
+    root_url      = string
+    redirect_uris = list(string)
+    web_origins   = list(string)
+
     scopes = map(object({
       description = optional(string, "")
-      terms_attributes = optional(object({
+
+      # ✅ scope별 prefix(tc.<scope>.*)로 확장 가능한 다중 세트
+      tc_sets = optional(map(object({
         required = bool
         version  = string
         url      = optional(string)
         template = optional(string)
         key      = optional(string)
-      }))
+      })))
     }))
+
     default_scopes = list(string)
+
     mappers = list(object({
       name            = string
       scope           = string
