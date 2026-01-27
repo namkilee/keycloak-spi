@@ -6,14 +6,14 @@ It is structured as a small environment layout (dev/stg/prd) that uses a MinIO (
 ## Structure
 
 - `modules/scopes`: Creates the `terms` and `claims` client scopes, plus the `value-transform-protocol-mapper`.
-- `envs/dev|stg|prd`: Environment-specific Terraform roots with MinIO backend configuration, client/IdP configuration applied to an existing realm, required action enablement, and default scope attachment. These envs read the bootstrap state to discover the realm id.
+- `dev|stg|prd`: Environment-specific Terraform roots with MinIO backend configuration, client/IdP configuration applied to an existing realm, required action enablement, and default scope attachment. These envs read the bootstrap state to discover the realm id.
 
 ## Usage
 
 1. Copy the example variables and update them for your environment:
 
 ```
-cd envs/dev
+cd dev
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -23,7 +23,7 @@ cp terraform.tfvars.example terraform.tfvars
 terraform init
 ```
 
-> Note: `envs/*` reads the bootstrap state via the S3/MinIO backend configured in each
+> Note: `dev|stg|prd` reads the bootstrap state via the S3/MinIO backend configured in each
 > environment. Terraform does not support “check local state first, then S3” fallback
 > for `terraform_remote_state`, so the bootstrap state must be present in the configured
 > backend (or the configuration must be changed to use a local backend explicitly).
