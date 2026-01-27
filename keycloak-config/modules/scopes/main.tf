@@ -99,6 +99,5 @@ resource "null_resource" "terms_scope_attributes" {
       TC_KEY                 = self.triggers.tc_key
     }
   }
-
   depends_on = [keycloak_openid_client_scope.scopes]
 }
