@@ -8,6 +8,14 @@ It is structured as a small environment layout (dev/stg/prd) that uses a MinIO (
 - `modules/scopes`: Creates the `terms` and `claims` client scopes, plus the `value-transform-protocol-mapper`.
 - `dev|stg|prd`: Environment-specific Terraform roots with MinIO backend configuration, client/IdP configuration applied to an existing realm, required action enablement, and default scope attachment. These envs read the bootstrap state to discover the realm id.
 
+## Client scope attributes
+
+Keycloak does not expose a separate “client scope attribute” object. If you want
+values to appear in tokens, you should model them as protocol mappers attached to
+the client scope. This module uses `keycloak_generic_protocol_mapper` so you can
+define any mapper type (`oidc-hardcoded-claim-mapper`, `oidc-user-attribute-mapper`,
+`value-transform-protocol-mapper`, etc.) via `protocol_mapper` and `config`.
+
 ## Usage
 
 1. Copy the example variables and update them for your environment:

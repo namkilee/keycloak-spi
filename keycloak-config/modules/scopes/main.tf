@@ -7,7 +7,7 @@ locals {
           client_key = client_key
           client_id  = client.client_id
           scope_key  = scope_key
-          attributes = scope.attributes
+          description = scope.description
         }
       ]
     ]) : item.key => item
@@ -21,6 +21,7 @@ locals {
           client_key          = client_key
           scope_resource_key  = "${client_key}.${mapper.scope}"
           name                = mapper.name
+          protocol_mapper     = mapper.protocol_mapper
           config              = mapper.config
         }
       ]
@@ -33,10 +34,9 @@ resource "keycloak_openid_client_scope" "scopes" {
 
   realm_id               = var.realm_id
   name                   = "${each.value.scope_key}-${each.value.client_id}"
-  description            = "Client scope for ${each.value.scope_key}"
+  description            = each.value.description != "" ? each.value.description : "Client scope for ${each.value.scope_key}"
   consent_screen_text    = each.value.scope_key
   include_in_token_scope = true
-  attributes             = each.value.attributes
 }
 
 resource "keycloak_generic_protocol_mapper" "value_transform" {
@@ -46,6 +46,6 @@ resource "keycloak_generic_protocol_mapper" "value_transform" {
   client_scope_id  = keycloak_openid_client_scope.scopes[each.value.scope_resource_key].id
   name             = each.value.name
   protocol         = "openid-connect"
-  protocol_mapper  = "value-transform-protocol-mapper"
+  protocol_mapper  = each.value.protocol_mapper
   config           = each.value.config
 }

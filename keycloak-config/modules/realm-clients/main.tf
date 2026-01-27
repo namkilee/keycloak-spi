@@ -9,7 +9,6 @@ resource "keycloak_required_action" "terms_required" {
   realm_id        = var.realm_id
   alias           = "terms-required-action"
   name            = "Terms & Conditions (multi)"
-  provider_id     = "terms-required-action"
   enabled         = true
   default_action  = false
 }

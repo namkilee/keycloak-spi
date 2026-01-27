@@ -21,27 +21,44 @@ clients = {
     web_origins   = ["https://app.dev.example.com"]
     scopes = {
       terms = {
-        attributes = {
-          "tc.required"              = "privacy,claims"
-          "tc.term.privacy.title"    = "Privacy Policy"
-          "tc.term.privacy.version"  = "v1"
-          "tc.term.privacy.url"      = "https://example.com/privacy"
-          "tc.term.privacy.required" = "true"
-          "tc.term.claims.title"     = "Claims Processing"
-          "tc.term.claims.version"   = "v1"
-          "tc.term.claims.url"       = "https://example.com/claims"
-          "tc.term.claims.required"  = "true"
-        }
+        description = "Terms & Conditions"
       }
       claims = {
-        attributes = {}
+        description = "Claims scope"
       }
     }
     default_scopes = ["terms", "claims"]
     mappers = [
       {
-        name  = "dept-transform"
-        scope = "claims"
+        name            = "tc-required"
+        scope           = "terms"
+        protocol_mapper = "oidc-hardcoded-claim-mapper"
+        config = {
+          "claim.name"        = "tc.required"
+          "claim.value"       = "privacy,claims"
+          "jsonType.label"    = "String"
+          "access.token.claim" = "true"
+          "id.token.claim"     = "true"
+          "userinfo.token.claim" = "true"
+        }
+      },
+      {
+        name            = "tc-privacy-url"
+        scope           = "terms"
+        protocol_mapper = "oidc-hardcoded-claim-mapper"
+        config = {
+          "claim.name"        = "tc.term.privacy.url"
+          "claim.value"       = "https://example.com/privacy"
+          "jsonType.label"    = "String"
+          "access.token.claim" = "true"
+          "id.token.claim"     = "true"
+          "userinfo.token.claim" = "true"
+        }
+      },
+      {
+        name            = "dept-transform"
+        scope           = "claims"
+        protocol_mapper = "value-transform-protocol-mapper"
         config = {
           "source.user.attribute"       = "dept_code"
           "target.claim.name"           = "dept"
@@ -67,17 +84,7 @@ clients = {
     web_origins   = ["https://app2.dev.example.com"]
     scopes = {
       terms = {
-        attributes = {
-          "tc.required"              = "privacy,claims"
-          "tc.term.privacy.title"    = "Privacy Policy"
-          "tc.term.privacy.version"  = "v1"
-          "tc.term.privacy.url"      = "https://example.com/privacy"
-          "tc.term.privacy.required" = "true"
-          "tc.term.claims.title"     = "Claims Processing"
-          "tc.term.claims.version"   = "v1"
-          "tc.term.claims.url"       = "https://example.com/claims"
-          "tc.term.claims.required"  = "true"
-        }
+        description = "Terms & Conditions"
       }
     }
     default_scopes = ["terms"]
