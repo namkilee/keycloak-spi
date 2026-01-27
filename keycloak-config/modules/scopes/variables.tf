@@ -2,25 +2,22 @@ variable "realm_id" {
   type = string
 }
 
-variable "terms_scope_name" {
-  type    = string
-  default = "terms"
-}
-
-variable "claims_scope_name" {
-  type    = string
-  default = "claims"
-}
-
-variable "terms_attributes" {
-  type = map(string)
-}
-
-variable "mapper_name" {
-  type    = string
-  default = "value-transform"
-}
-
-variable "mapper_config" {
-  type = map(string)
+variable "clients" {
+  type = map(object({
+    client_id        = string
+    name             = string
+    root_url         = string
+    redirect_uris    = list(string)
+    web_origins      = list(string)
+    scopes = map(object({
+      attributes = map(string)
+    }))
+    default_scopes = list(string)
+    mappers = list(object({
+      name   = string
+      scope  = string
+      config = map(string)
+    }))
+  }))
+  description = "Map of client definitions used to create client-specific scopes and mappers."
 }

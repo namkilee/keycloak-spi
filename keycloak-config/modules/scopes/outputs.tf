@@ -1,15 +1,19 @@
-output "terms_id" {
-  value = keycloak_openid_client_scope.terms.id
+output "scope_ids" {
+  value = {
+    for client_key, client in var.clients :
+    client_key => {
+      for scope_key, scope in client.scopes :
+      scope_key => keycloak_openid_client_scope.scopes["${client_key}.${scope_key}"].id
+    }
+  }
 }
 
-output "claims_id" {
-  value = keycloak_openid_client_scope.claims.id
-}
-
-output "terms_name" {
-  value = keycloak_openid_client_scope.terms.name
-}
-
-output "claims_name" {
-  value = keycloak_openid_client_scope.claims.name
+output "scope_names" {
+  value = {
+    for client_key, client in var.clients :
+    client_key => {
+      for scope_key, scope in client.scopes :
+      scope_key => keycloak_openid_client_scope.scopes["${client_key}.${scope_key}"].name
+    }
+  }
 }
