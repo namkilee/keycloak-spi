@@ -38,7 +38,7 @@ provider "keycloak" {
 }
 
 module "realm_clients" {
-  source = "../../modules/realm-clients"
+  source = "../modules/realm-clients"
 
   realm_id          = data.terraform_remote_state.bootstrap.outputs.bootstrap_realm_id
 
@@ -51,5 +51,6 @@ module "realm_clients" {
   saml_slo_url             = var.saml_slo_url
   saml_signing_certificate = var.saml_signing_certificate
   saml_enabled             = var.saml_enabled
-  saml_trust_email         = var.saml_trust_email
+  saml_principal_type      = var.saml_principal_type
+  saml_principal_attribute = var.saml_principal_attribute
 }

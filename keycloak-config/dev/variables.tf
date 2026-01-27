@@ -92,6 +92,10 @@ variable "saml_enabled" {
   type = bool
 }
 
-variable "saml_trust_email" {
-  type = bool
+variable "saml_principal_type" {
+  type = string
+}
+
+variable "saml_principal_attribute" {
+  type = string
 }

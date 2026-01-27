@@ -51,5 +51,6 @@ resource "keycloak_saml_identity_provider" "saml_idp" {
   single_logout_service_url  = var.saml_slo_url
   signing_certificate        = var.saml_signing_certificate
   enabled                    = var.saml_enabled
-  trust_email                = var.saml_trust_email
+  principal_type             = var.saml_principal_type
+  principal_attribute        = var.saml_principal_attribute
 }

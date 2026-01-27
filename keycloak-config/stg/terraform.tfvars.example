@@ -25,4 +25,5 @@ saml_sso_url              = "https://sso.stg.example.com/saml/sso"
 saml_slo_url              = "https://sso.stg.example.com/saml/slo"
 saml_signing_certificate  = "-----BEGIN CERTIFICATE-----\nMIID...snip...\n-----END CERTIFICATE-----"
 saml_enabled              = true
-saml_trust_email          = true
+saml_principal_type       = "ATTRIBUTE"
+saml_principal_attribute  = "email"
