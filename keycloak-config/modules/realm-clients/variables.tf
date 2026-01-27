@@ -54,7 +54,6 @@ variable "clients" {
     scopes = map(object({
       description = optional(string, "")
 
-      # ✅ scope별 prefix(tc.<scope>.*)로 확장 가능한 다중 세트
       tc_sets = optional(map(object({
         required = bool
         version  = string
@@ -73,6 +72,26 @@ variable "clients" {
       config          = map(string)
     }))
   }))
+
+  # default_scopes 안의 값이 scopes map의 key로 존재하는지 검증
+  validation {
+    condition = alltrue(flatten([
+      for client_key, c in var.clients : [
+        for s in c.default_scopes : contains(keys(c.scopes), s)
+      ]
+    ]))
+    error_message = "clients[*].default_scopes must contain only scope keys that exist in clients[*].scopes. Check each client's default_scopes vs scopes map keys."
+  }
+
+  # mappers[*].scope 가 scopes map의 key로 존재하는지 검증
+  validation {
+    condition = alltrue(flatten([
+      for client_key, c in var.clients : [
+        for m in c.mappers : contains(keys(c.scopes), m.scope)
+      ]
+    ]))
+    error_message = "clients[*].mappers[*].scope must reference an existing scope key in clients[*].scopes."
+  }
 }
 
 variable "saml_idp_alias" {
