@@ -10,11 +10,19 @@ It is structured as a small environment layout (dev/stg/prd) that uses a MinIO (
 
 ## Client scope attributes
 
-Keycloak does not expose a separate “client scope attribute” object. If you want
-values to appear in tokens, you should model them as protocol mappers attached to
-the client scope. This module uses `keycloak_generic_protocol_mapper` so you can
-define any mapper type (`oidc-hardcoded-claim-mapper`, `oidc-user-attribute-mapper`,
-`value-transform-protocol-mapper`, etc.) via `protocol_mapper` and `config`.
+Keycloak does not expose a separate “client scope attribute” object in the
+provider, so the `terms` scope attributes are applied via `kcadm.sh` with a
+`null_resource` provisioner. Supply the attributes under
+`clients[*].scopes.terms.terms_attributes`, and they are written to
+`attributes.tc.*` on the client scope without adding protocol mappers to tokens.
+Other token-mapped values should continue to use protocol mappers.
+
+The provisioner shells out to the Keycloak container:
+
+- **dev** uses `docker exec` and requires `keycloak_container_name`.
+- **stg/prd** uses `kubectl exec` and requires `keycloak_namespace` and
+  `keycloak_pod_selector` (for example,
+  `app.kubernetes.io/name=keycloak`).
 
 ## Usage
 
