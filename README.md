@@ -66,6 +66,12 @@ This module provides a protocol mapper that transforms a user attribute value in
 2. Client attribute `map.<source.user.attribute>` (if enabled)
 3. Client attribute `mapping.client.key`
 
+## Prerequisites
+
+- Java 17 (see `spi/pom.xml` `<java.version>17</java.version>`).
+- Keycloak 26.3.3 compatible (see `spi/pom.xml` `<keycloak.version>26.3.3</keycloak.version>`).
+- Maven: use the project wrapper at `spi/mvnw` when building.
+
 ## Build
 
 From the `spi` directory:
