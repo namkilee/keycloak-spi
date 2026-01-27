@@ -40,7 +40,7 @@ provider "keycloak" {
 module "realm_clients" {
   source = "../modules/realm-clients"
 
-  realm_id          = data.terraform_remote_state.bootstrap.outputs.bootstrap_realm_id
+  realm_id = data.terraform_remote_state.bootstrap.outputs.bootstrap_realm_id
 
   clients = var.clients
 
