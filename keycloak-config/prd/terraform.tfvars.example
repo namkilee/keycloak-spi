@@ -4,6 +4,8 @@ keycloak_url           = "https://keycloak.prd.example.com"
 # Optional: override if you don't want to use bootstrap outputs.
 # keycloak_client_id     = "terraform"
 # keycloak_client_secret = "replace-me"
+keycloak_namespace     = "keycloak"
+keycloak_pod_selector  = "app.kubernetes.io/name=keycloak"
 
 bootstrap_state_bucket     = "keycloak-terraform-state"
 bootstrap_state_key        = "bootstrap/terraform.tfstate"

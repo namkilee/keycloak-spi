@@ -18,6 +18,10 @@ variable "keycloak_client_secret" {
   sensitive = true
 }
 
+variable "keycloak_container_name" {
+  type = string
+}
+
 variable "bootstrap_state_bucket" {
   type = string
 }
@@ -53,6 +57,13 @@ variable "clients" {
     web_origins      = list(string)
     scopes = map(object({
       description = optional(string, "")
+      terms_attributes = optional(object({
+        required = bool
+        version  = string
+        url      = optional(string)
+        template = optional(string)
+        key      = optional(string)
+      }))
     }))
     default_scopes = list(string)
     mappers = list(object({
