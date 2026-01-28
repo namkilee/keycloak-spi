@@ -174,31 +174,39 @@ variable "saml_idp_mappers" {
   }
 
   validation {
-    condition = alltrue([
-      for mapper in var.saml_idp_mappers : (
-        mapper.type == "attribute_importer" ? (
-          mapper.user_attribute != null && (
-            mapper.attribute_name != null ||
-            mapper.attribute_friendly_name != null ||
-            mapper.claim_name != null
-          )
-        ) : mapper.type == "hardcoded_attribute" ? (
-          mapper.attribute_name != null && mapper.attribute_value != null && mapper.user_session != null
-        ) : mapper.type == "attribute_to_role" ? (
-          mapper.role != null && (
-            mapper.attribute_name != null ||
-            mapper.attribute_friendly_name != null ||
-            mapper.claim_name != null
-          )
-        ) : mapper.type == "hardcoded_group" ? (
-          mapper.group != null
-        ) : mapper.type == "hardcoded_role" ? (
-          mapper.role != null
-        ) : (
-          mapper.identity_provider_mapper != null
+  condition = alltrue([
+    for mapper in var.saml_idp_mappers : (
+      mapper.type == "attribute_importer" ? (
+        mapper.user_attribute != null && (
+          mapper.attribute_name != null ||
+          mapper.attribute_friendly_name != null ||
+          mapper.claim_name != null
         )
-      )
-    ])
-    error_message = "saml_idp_mappers entries must provide required fields for their type."
-  }
+      ) :
+      mapper.type == "hardcoded_attribute" ? (
+        mapper.attribute_name != null &&
+        mapper.attribute_value != null &&
+        mapper.user_session != null
+      ) :
+      mapper.type == "attribute_to_role" ? (
+        mapper.role != null && (
+          mapper.attribute_name != null ||
+          mapper.attribute_friendly_name != null ||
+          mapper.claim_name != null
+        )
+      ) :
+      mapper.type == "hardcoded_group" ? (
+        mapper.group != null
+      ) :
+      mapper.type == "hardcoded_role" ? (
+        mapper.role != null
+      ) :
+      mapper.type == "custom" ? (
+        mapper.identity_provider_mapper != null
+      ) :
+      false
+    )
+  ])
+  error_message = "saml_idp_mappers entries must provide required fields for their type."
+}
 }
