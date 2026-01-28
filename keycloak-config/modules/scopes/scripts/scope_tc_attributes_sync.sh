@@ -41,6 +41,12 @@ KC_UPDATED_JSON_PATH="${KC_UPDATED_JSON_PATH:-${KC_TMP_DIR}/kc-scope-update-${SC
 # Bitnami Keycloak image: keytool exists here but PATH may not include it in /bin/sh non-login shells
 KEYTOOL_BIN="${KEYTOOL_BIN:-/opt/bitnami/java/bin/keytool}"
 
+# IMPORTANT:
+# kcadm writes config to $HOME/.keycloak/kcadm.config and uses a lock.
+# Terraform may run local-exec in parallel -> lock conflict if HOME is shared.
+# So we isolate HOME per execution by default.
+KCADM_HOME_DIR="${KCADM_HOME_DIR:-/tmp/kcadm-home-${REALM_ID}-${SCOPE_ID}-${SCOPE_KEY}}"
+
 # =========================
 # Common exec base (docker/kubectl)
 # =========================
@@ -65,26 +71,28 @@ kc_init_exec() {
   esac
 }
 
-# Run shell inside container/pod (HOME forced to /tmp to avoid /.keycloak permission issue)
+# Run shell inside container/pod with isolated HOME
 kc_sh() {
   # Usage: kc_sh "some shell script"
-  "${KC_EXEC[@]}" /bin/sh -lc "HOME=/tmp; $*"
+  "${KC_EXEC[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; $*"
 }
 
-# Run kcadm inside container/pod with HOME forced to /tmp (robust argv passing)
+# Run kcadm inside container/pod with isolated HOME (robust argv passing)
 kc_kcadm() {
-  # This pattern preserves args exactly. Do NOT use $*.
   "${KC_EXEC[@]}" /bin/sh -lc '
-    HOME=/tmp
+    set -e
+    HOME="$1"
+    shift
+    mkdir -p "$HOME"
     exec "$@"
-  ' -- "${KCADM_PATH}" "$@"
+  ' -- "${KCADM_HOME_DIR}" "${KCADM_PATH}" "$@"
 }
 
 # Write a file inside container/pod using stdin (no docker cp / kubectl cp)
 kc_write_file() {
   local path="$1"
   # Create parent directory and write stdin into file
-  "${KC_EXEC[@]}" /bin/sh -lc "HOME=/tmp; mkdir -p \"$(dirname "$path")\" && cat > \"$path\""
+  "${KC_EXEC[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; mkdir -p \"$(dirname "$path")\" && cat > \"$path\""
 }
 
 kc_init_exec
@@ -101,9 +109,7 @@ EOF
     exit 1
   fi
 
-  # Create/import truststore inside container/pod
   kc_sh "
-    set -e
     test -f '${KEYCLOAK_CA_CERT_PEM}' || { echo 'ERROR: cert not found: ${KEYCLOAK_CA_CERT_PEM}' >&2; exit 1; }
 
     if [ ! -x '${KEYTOOL_BIN}' ]; then
@@ -127,7 +133,7 @@ EOF
     fi
   "
 
-  # Point kcadm to truststore (writes to $HOME/.keycloak/kcadm.config -> HOME=/tmp ensured in kc_kcadm)
+  # Point kcadm to truststore (stored under isolated HOME)
   kc_kcadm config truststore --trustpass "${KCADM_TRUSTSTORE_PASS}" "${KCADM_TRUSTSTORE_FILE}"
 
 elif [[ "${KEYCLOAK_TLS_MODE}" == "off" ]]; then
@@ -182,7 +188,6 @@ if mode == "replace":
     attrs = {k: v for k, v in attrs.items() if not k.startswith(prefix)}
 
 # 2) tc_sets를 prefix 기반으로 flatten
-# tc_sets: { "privacy": {...}, "tos": {...} }
 for set_key, cfg in (tc_sets or {}).items():
     if not isinstance(cfg, dict):
         continue
@@ -209,4 +214,5 @@ printf '%s' "${UPDATED_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
 kc_kcadm update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" -f "${KC_UPDATED_JSON_PATH}"
 
 echo "Synced attributes under prefix ${PREFIX} (mode=${SYNC_MODE})"
+echo "KCADM_HOME_DIR (isolated): ${KCADM_HOME_DIR}"
 echo "Updated JSON path: ${KC_UPDATED_JSON_PATH} (inside ${KCADM_EXEC_MODE} runtime)"
