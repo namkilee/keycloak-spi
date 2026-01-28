@@ -55,6 +55,7 @@ kc_init_exec() {
     docker)
       : "${KEYCLOAK_CONTAINER_NAME:?}"
       KC_EXEC=(docker exec "${KEYCLOAK_CONTAINER_NAME}")
+      KC_EXEC_I=(docker exec -i "${KEYCLOAK_CONTAINER_NAME}")   # stdin 전달용
       ;;
     kubectl)
       : "${KEYCLOAK_NAMESPACE:?}"
@@ -63,6 +64,7 @@ kc_init_exec() {
       pod="$(kubectl -n "${KEYCLOAK_NAMESPACE}" get pod -l "${KEYCLOAK_POD_SELECTOR}" -o jsonpath='{.items[0].metadata.name}')"
       [[ -n "${pod}" ]] || { echo "No Keycloak pod found" >&2; exit 1; }
       KC_EXEC=(kubectl -n "${KEYCLOAK_NAMESPACE}" exec "${pod}" --)
+      KC_EXEC_I=(kubectl -n "${KEYCLOAK_NAMESPACE}" exec -i "${pod}" --)  # stdin 전달용
       ;;
     *)
       echo "Unsupported KCADM_EXEC_MODE: ${KCADM_EXEC_MODE}" >&2
@@ -91,8 +93,7 @@ kc_kcadm() {
 # Write a file inside container/pod using stdin (no docker cp / kubectl cp)
 kc_write_file() {
   local path="$1"
-  # Create parent directory and write stdin into file
-  "${KC_EXEC[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; mkdir -p \"$(dirname "$path")\" && cat > \"$path\""
+  "${KC_EXEC_I[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; mkdir -p \"$(dirname "$path")\" && cat > \"$path\""
 }
 
 kc_init_exec
@@ -205,8 +206,13 @@ print(json.dumps(current))
 PY
 )"
 
-# Write updated JSON into container/pod
+[[ -n "${UPDATED_JSON}" ]] || { echo "ERROR: UPDATED_JSON is empty" >&2; exit 1; }
+
+# Write updated JSON into container/pod (stdin requires -i)
 printf '%s' "${UPDATED_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
+
+# (Optional) sanity check: file size inside runtime (helps debugging)
+kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file is empty: ${KC_UPDATED_JSON_PATH}' >&2; exit 1; }"
 
 # =========================
 # Update client-scope using the in-runtime file
