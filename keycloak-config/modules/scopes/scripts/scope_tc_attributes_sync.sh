@@ -88,19 +88,28 @@ EOF
   # Create/import truststore inside container/pod
   kc_sh "
     set -e
+  
+    KEYTOOL_BIN='/opt/bitnami/java/bin/keytool'
+    if [ ! -x \"\$KEYTOOL_BIN\" ]; then
+      echo 'ERROR: keytool not executable at /opt/bitnami/java/bin/keytool' >&2
+      exit 1
+    fi
+  
     test -f '${KEYCLOAK_CA_CERT_PEM}' || { echo 'ERROR: cert not found: ${KEYCLOAK_CA_CERT_PEM}' >&2; exit 1; }
     mkdir -p '${KCADM_TRUSTSTORE_DIR}'
-    if [ -f '${KCADM_TRUSTSTORE_FILE}' ] && keytool -list -keystore '${KCADM_TRUSTSTORE_FILE}' -storepass '${KCADM_TRUSTSTORE_PASS}' -alias '${KCADM_TRUSTSTORE_ALIAS}' >/dev/null 2>&1; then
+  
+    if [ -f '${KCADM_TRUSTSTORE_FILE}' ] && \"\$KEYTOOL_BIN\" -list -keystore '${KCADM_TRUSTSTORE_FILE}' -storepass '${KCADM_TRUSTSTORE_PASS}' -alias '${KCADM_TRUSTSTORE_ALIAS}' >/dev/null 2>&1; then
       echo '[OK] truststore already configured'
     else
       rm -f '${KCADM_TRUSTSTORE_FILE}'
-      keytool -importcert -noprompt \
+      \"\$KEYTOOL_BIN\" -importcert -noprompt \
         -alias '${KCADM_TRUSTSTORE_ALIAS}' \
         -file '${KEYCLOAK_CA_CERT_PEM}' \
         -keystore '${KCADM_TRUSTSTORE_FILE}' \
         -storepass '${KCADM_TRUSTSTORE_PASS}'
     fi
   "
+
 
   # Point kcadm to truststore
   kc_kcadm config truststore --trustpass "${KCADM_TRUSTSTORE_PASS}" "${KCADM_TRUSTSTORE_FILE}"
