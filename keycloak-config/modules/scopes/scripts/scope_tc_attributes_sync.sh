@@ -1,26 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# =========================
+# Required envs
+# =========================
 : "${KCADM_PATH:?}"
 : "${KCADM_EXEC_MODE:?}"         # docker | kubectl
 : "${KEYCLOAK_URL:?}"
 : "${KEYCLOAK_AUTH_REALM:?}"
 : "${KEYCLOAK_CLIENT_ID:?}"
 : "${KEYCLOAK_CLIENT_SECRET:?}"
-: "${REALM_ID:?}"
+: "${REALM_ID:?}"                # realm name (not UUID)
 : "${SCOPE_ID:?}"
 : "${SCOPE_KEY:?}"
 : "${TC_SETS_JSON:?}"
 
+# =========================
+# Optional envs
+# =========================
 TC_PREFIX_ROOT="${TC_PREFIX_ROOT:-tc}"
-SYNC_MODE="${SYNC_MODE:-replace}"   # replace = 삭제 포함 동기화
+SYNC_MODE="${SYNC_MODE:-replace}"   # replace = tc.<scope>.* 삭제 후 재작성
 PREFIX="${TC_PREFIX_ROOT}.${SCOPE_KEY}."
 
-# TLS truststore mode (optional)
+# TLS truststore mode:
 # - truststore: create/import CA cert into JKS and configure kcadm truststore (recommended)
-# - off: do nothing (use only if KEYCLOAK_URL is http:// or cert is publicly trusted)
+# - off: do nothing (use if http:// or publicly trusted cert chain)
 KEYCLOAK_TLS_MODE="${KEYCLOAK_TLS_MODE:-truststore}"
-KEYCLOAK_CA_CERT_PEM="${KEYCLOAK_CA_CERT_PEM:-}"      # must exist inside container/pod
+
+# IMPORTANT: must be a path INSIDE container/pod because kcadm runs there
+KEYCLOAK_CA_CERT_PEM="${KEYCLOAK_CA_CERT_PEM:-}"
 
 KCADM_TRUSTSTORE_DIR="${KCADM_TRUSTSTORE_DIR:-/tmp}"
 KCADM_TRUSTSTORE_FILE="${KCADM_TRUSTSTORE_FILE:-${KCADM_TRUSTSTORE_DIR}/kcadm-truststore.jks}"
@@ -30,9 +38,12 @@ KCADM_TRUSTSTORE_ALIAS="${KCADM_TRUSTSTORE_ALIAS:-keycloak-ca}"
 KC_TMP_DIR="${KC_TMP_DIR:-/tmp}"
 KC_UPDATED_JSON_PATH="${KC_UPDATED_JSON_PATH:-${KC_TMP_DIR}/kc-scope-update-${SCOPE_ID}.json}"
 
-# ----------------------------
-# Common exec utils (docker/kubectl)
-# ----------------------------
+# Bitnami Keycloak image: keytool exists here but PATH may not include it in /bin/sh non-login shells
+KEYTOOL_BIN="${KEYTOOL_BIN:-/opt/bitnami/java/bin/keytool}"
+
+# =========================
+# Common exec base (docker/kubectl)
+# =========================
 kc_init_exec() {
   case "${KCADM_EXEC_MODE}" in
     docker)
@@ -54,33 +65,38 @@ kc_init_exec() {
   esac
 }
 
-# Run kcadm inside container/pod
-kc_kcadm() {
-  "${KC_EXEC[@]}" "${KCADM_PATH}" "$@"
-}
-
-# Run /bin/sh -lc inside container/pod (for keytool, file writes, etc.)
+# Run shell inside container/pod (HOME forced to /tmp to avoid /.keycloak permission issue)
 kc_sh() {
-  "${KC_EXEC[@]}" /bin/sh -lc "$*"
+  # Usage: kc_sh "some shell script"
+  "${KC_EXEC[@]}" /bin/sh -lc "HOME=/tmp; $*"
 }
 
-# Write a file inside container/pod using stdin (robust for terraform local-exec)
-# Usage: echo "content" | kc_write_file "/tmp/x.json"
+# Run kcadm inside container/pod with HOME forced to /tmp (robust argv passing)
+kc_kcadm() {
+  # This pattern preserves args exactly. Do NOT use $*.
+  "${KC_EXEC[@]}" /bin/sh -lc '
+    HOME=/tmp
+    exec "$@"
+  ' -- "${KCADM_PATH}" "$@"
+}
+
+# Write a file inside container/pod using stdin (no docker cp / kubectl cp)
 kc_write_file() {
   local path="$1"
-  kc_sh "mkdir -p '$(dirname "$path")' && cat > '$path'"
+  # Create parent directory and write stdin into file
+  "${KC_EXEC[@]}" /bin/sh -lc "HOME=/tmp; mkdir -p \"$(dirname "$path")\" && cat > \"$path\""
 }
 
 kc_init_exec
 
-# ----------------------------
-# TLS truststore setup (optional)
-# ----------------------------
+# =========================
+# TLS truststore setup
+# =========================
 if [[ "${KEYCLOAK_TLS_MODE}" == "truststore" ]]; then
   if [[ -z "${KEYCLOAK_CA_CERT_PEM}" ]]; then
     cat >&2 <<EOF
 ERROR: KEYCLOAK_TLS_MODE=truststore requires KEYCLOAK_CA_CERT_PEM (path inside container/pod).
-Because kcadm runs inside ${KCADM_EXEC_MODE}, this must be a path that exists inside that runtime.
+Because kcadm runs inside ${KCADM_EXEC_MODE}, this must exist INSIDE that runtime.
 EOF
     exit 1
   fi
@@ -88,30 +104,30 @@ EOF
   # Create/import truststore inside container/pod
   kc_sh "
     set -e
-  
-    KEYTOOL_BIN='/opt/bitnami/java/bin/keytool'
-    if [ ! -x \"\$KEYTOOL_BIN\" ]; then
-      echo 'ERROR: keytool not executable at /opt/bitnami/java/bin/keytool' >&2
+    test -f '${KEYCLOAK_CA_CERT_PEM}' || { echo 'ERROR: cert not found: ${KEYCLOAK_CA_CERT_PEM}' >&2; exit 1; }
+
+    if [ ! -x '${KEYTOOL_BIN}' ]; then
+      echo 'ERROR: keytool not executable at ${KEYTOOL_BIN}' >&2
+      echo 'HINT: set KEYTOOL_BIN to the actual path inside container/pod' >&2
       exit 1
     fi
-  
-    test -f '${KEYCLOAK_CA_CERT_PEM}' || { echo 'ERROR: cert not found: ${KEYCLOAK_CA_CERT_PEM}' >&2; exit 1; }
+
     mkdir -p '${KCADM_TRUSTSTORE_DIR}'
-  
-    if [ -f '${KCADM_TRUSTSTORE_FILE}' ] && \"\$KEYTOOL_BIN\" -list -keystore '${KCADM_TRUSTSTORE_FILE}' -storepass '${KCADM_TRUSTSTORE_PASS}' -alias '${KCADM_TRUSTSTORE_ALIAS}' >/dev/null 2>&1; then
+
+    if [ -f '${KCADM_TRUSTSTORE_FILE}' ] && '${KEYTOOL_BIN}' -list -keystore '${KCADM_TRUSTSTORE_FILE}' -storepass '${KCADM_TRUSTSTORE_PASS}' -alias '${KCADM_TRUSTSTORE_ALIAS}' >/dev/null 2>&1; then
       echo '[OK] truststore already configured'
     else
       rm -f '${KCADM_TRUSTSTORE_FILE}'
-      \"\$KEYTOOL_BIN\" -importcert -noprompt \
+      '${KEYTOOL_BIN}' -importcert -noprompt \
         -alias '${KCADM_TRUSTSTORE_ALIAS}' \
         -file '${KEYCLOAK_CA_CERT_PEM}' \
         -keystore '${KCADM_TRUSTSTORE_FILE}' \
         -storepass '${KCADM_TRUSTSTORE_PASS}'
+      echo '[OK] truststore created'
     fi
   "
 
-
-  # Point kcadm to truststore
+  # Point kcadm to truststore (writes to $HOME/.keycloak/kcadm.config -> HOME=/tmp ensured in kc_kcadm)
   kc_kcadm config truststore --trustpass "${KCADM_TRUSTSTORE_PASS}" "${KCADM_TRUSTSTORE_FILE}"
 
 elif [[ "${KEYCLOAK_TLS_MODE}" == "off" ]]; then
@@ -121,25 +137,30 @@ else
   exit 1
 fi
 
-# ----------------------------
+# =========================
 # kcadm login
-# ----------------------------
+# =========================
 kc_kcadm config credentials \
   --server "${KEYCLOAK_URL}" \
   --realm "${KEYCLOAK_AUTH_REALM}" \
   --client "${KEYCLOAK_CLIENT_ID}" \
   --secret "${KEYCLOAK_CLIENT_SECRET}"
 
-# ----------------------------
+# =========================
 # Fetch current client-scope JSON
-# ----------------------------
+# =========================
 CURRENT_JSON="$(kc_kcadm get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}")"
+[[ -n "${CURRENT_JSON}" ]] || { echo "ERROR: CURRENT_JSON is empty (scope not found?)" >&2; exit 1; }
 
-# ----------------------------
+# =========================
 # Build updated JSON on host (python), then stream into container/pod file
-# ----------------------------
+# =========================
 UPDATED_JSON="$(
-python3 - <<'PY'
+  CURRENT_JSON="${CURRENT_JSON}" \
+  TC_SETS_JSON="${TC_SETS_JSON}" \
+  PREFIX="${PREFIX}" \
+  SYNC_MODE="${SYNC_MODE}" \
+  python3 - <<'PY'
 import json, os
 
 current = json.loads(os.environ["CURRENT_JSON"])
@@ -177,14 +198,14 @@ for set_key, cfg in (tc_sets or {}).items():
 current["attributes"] = attrs
 print(json.dumps(current))
 PY
-)" CURRENT_JSON="${CURRENT_JSON}" TC_SETS_JSON="${TC_SETS_JSON}" PREFIX="${PREFIX}" SYNC_MODE="${SYNC_MODE}"
+)"
 
-# Stream JSON into container/pod file (NO docker cp / kubectl cp)
+# Write updated JSON into container/pod
 printf '%s' "${UPDATED_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
 
-# ----------------------------
+# =========================
 # Update client-scope using the in-runtime file
-# ----------------------------
+# =========================
 kc_kcadm update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" -f "${KC_UPDATED_JSON_PATH}"
 
 echo "Synced attributes under prefix ${PREFIX} (mode=${SYNC_MODE})"
