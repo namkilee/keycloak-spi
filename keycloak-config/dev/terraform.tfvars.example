@@ -15,6 +15,7 @@ clients = {
     root_url      = "https://app.dev.example.com"
     redirect_uris = ["https://app.dev.example.com/*"]
     web_origins   = ["https://app.dev.example.com"]
+    login_theme   = "AAP"
 
     scopes = {
       terms = {
@@ -75,6 +76,7 @@ clients = {
     root_url      = "https://app2.dev.example.com"
     redirect_uris = ["https://app2.dev.example.com/*"]
     web_origins   = ["https://app2.dev.example.com"]
+    login_theme   = "AAP"
 
     scopes = {
       terms = {
@@ -102,3 +104,55 @@ saml_signing_certificate = "-----BEGIN CERTIFICATE-----\nMIID...snip...\n-----EN
 saml_enabled             = true
 saml_principal_type      = "ATTRIBUTE"
 saml_principal_attribute = "email"
+saml_idp_mappers = [
+  {
+    name           = "email-attribute"
+    type           = "attribute_importer"
+    attribute_name = "email"
+    user_attribute = "email"
+  },
+  {
+    name            = "dept-hardcoded"
+    type            = "hardcoded_attribute"
+    attribute_name  = "dept"
+    attribute_value = "finance"
+  },
+  {
+    name           = "role-mapper"
+    type           = "attribute_to_role"
+    attribute_name = "department"
+    claim_name     = "department"
+    claim_value    = "finance"
+    role           = "finance-user"
+    extra_config = {
+      syncMode = "INHERIT"
+    }
+  },
+  {
+    name                    = "custom-mapper"
+    type                    = "custom"
+    identity_provider_mapper = "saml-user-attribute-idp-mapper"
+    extra_config = {
+      syncMode      = "INHERIT"
+      Claim         = "preferred_username"
+      UserAttribute = "preferred_username"
+    }
+  },
+  {
+    name           = "hardcoded-attribute"
+    type           = "hardcoded_attribute"
+    attribute_name = "session_attr"
+    attribute_value = "value"
+    user_session   = true
+  },
+  {
+    name  = "hardcoded-group"
+    type  = "hardcoded_group"
+    group = "/DevOps"
+  },
+  {
+    name  = "hardcoded-role"
+    type  = "hardcoded_role"
+    role  = "my-realm-role"
+  }
+]

@@ -60,4 +60,5 @@ module "realm_clients" {
   saml_enabled             = var.saml_enabled
   saml_principal_type      = var.saml_principal_type
   saml_principal_attribute = var.saml_principal_attribute
+  saml_idp_mappers         = var.saml_idp_mappers
 }

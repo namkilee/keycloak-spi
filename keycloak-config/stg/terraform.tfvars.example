@@ -29,3 +29,11 @@ saml_signing_certificate  = "-----BEGIN CERTIFICATE-----\nMIID...snip...\n-----E
 saml_enabled              = true
 saml_principal_type       = "ATTRIBUTE"
 saml_principal_attribute  = "email"
+saml_idp_mappers = [
+  {
+    name           = "email-attribute"
+    type           = "attribute_importer"
+    attribute_name = "email"
+    user_attribute = "email"
+  }
+]
