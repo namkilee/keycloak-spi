@@ -36,6 +36,7 @@ resource "keycloak_openid_client" "app" {
   base_url                     = each.value.root_url
   valid_redirect_uris          = each.value.redirect_uris
   web_origins                  = each.value.web_origins
+  login_theme                  = each.value.login_theme
 }
 
 resource "keycloak_openid_client_default_scopes" "app" {
@@ -61,4 +62,110 @@ resource "keycloak_saml_identity_provider" "saml_idp" {
   enabled                    = var.saml_enabled
   principal_type             = var.saml_principal_type
   principal_attribute        = var.saml_principal_attribute
+}
+
+resource "keycloak_attribute_importer_identity_provider_mapper" "saml_idp" {
+  for_each = {
+    for mapper in var.saml_idp_mappers : mapper.name => mapper
+    if mapper.type == "attribute_importer"
+  }
+
+  realm                   = var.realm_id
+  name                    = each.value.name
+  identity_provider_alias = keycloak_saml_identity_provider.saml_idp.alias
+  attribute_name          = each.value.attribute_name
+  attribute_friendly_name = each.value.attribute_friendly_name
+  claim_name              = each.value.claim_name
+  user_attribute          = each.value.user_attribute
+  extra_config = merge(
+    coalesce(each.value.extra_config, {}),
+    { syncMode = each.value.sync_mode }
+  )
+}
+
+resource "keycloak_hardcoded_attribute_identity_provider_mapper" "saml_idp" {
+  for_each = {
+    for mapper in var.saml_idp_mappers : mapper.name => mapper
+    if mapper.type == "hardcoded_attribute"
+  }
+
+  realm                   = var.realm_id
+  name                    = each.value.name
+  identity_provider_alias = keycloak_saml_identity_provider.saml_idp.alias
+  attribute_name          = each.value.attribute_name
+  attribute_value         = each.value.attribute_value
+  user_session            = each.value.user_session
+  extra_config = merge(
+    coalesce(each.value.extra_config, {}),
+    { syncMode = each.value.sync_mode }
+  )
+}
+
+resource "keycloak_attribute_to_role_identity_provider_mapper" "saml_idp" {
+  for_each = {
+    for mapper in var.saml_idp_mappers : mapper.name => mapper
+    if mapper.type == "attribute_to_role"
+  }
+
+  realm                   = var.realm_id
+  name                    = each.value.name
+  identity_provider_alias = keycloak_saml_identity_provider.saml_idp.alias
+  attribute_name          = each.value.attribute_name
+  attribute_friendly_name = each.value.attribute_friendly_name
+  attribute_value         = each.value.attribute_value
+  claim_name              = each.value.claim_name
+  claim_value             = each.value.claim_value
+  role                    = each.value.role
+  extra_config = merge(
+    coalesce(each.value.extra_config, {}),
+    { syncMode = each.value.sync_mode }
+  )
+}
+
+resource "keycloak_custom_identity_provider_mapper" "saml_idp" {
+  for_each = {
+    for mapper in var.saml_idp_mappers : mapper.name => mapper
+    if mapper.type == "custom"
+  }
+
+  realm                    = var.realm_id
+  name                     = each.value.name
+  identity_provider_alias  = keycloak_saml_identity_provider.saml_idp.alias
+  identity_provider_mapper = each.value.identity_provider_mapper
+  extra_config             = merge(
+    coalesce(each.value.extra_config, {}),
+    { syncMode = each.value.sync_mode }
+  )
+}
+
+resource "keycloak_hardcoded_group_identity_provider_mapper" "saml_idp" {
+  for_each = {
+    for mapper in var.saml_idp_mappers : mapper.name => mapper
+    if mapper.type == "hardcoded_group"
+  }
+
+  realm                   = var.realm_id
+  name                    = each.value.name
+  identity_provider_alias = keycloak_saml_identity_provider.saml_idp.alias
+  group                   = each.value.group
+  extra_config = merge(
+    coalesce(each.value.extra_config, {}),
+    { syncMode = each.value.sync_mode }
+  )
+}
+
+resource "keycloak_hardcoded_role_identity_provider_mapper" "saml_idp" {
+  for_each = {
+    for mapper in var.saml_idp_mappers : mapper.name => mapper
+    if mapper.type == "hardcoded_role"
+  }
+
+  realm                   = var.realm_id
+  name                    = each.value.name
+  identity_provider_alias = keycloak_saml_identity_provider.saml_idp.alias
+  role                    = each.value.role
+  extra_config = merge(
+    coalesce(each.value.extra_config, {}),
+    { syncMode = each.value.sync_mode }
+  )
 }
