@@ -45,7 +45,7 @@ resource "keycloak_openid_client_default_scopes" "app" {
   realm_id  = var.realm_id
   client_id = each.value.id
   default_scopes = [
-    for scope_key in each.value.default_scopes :
+    for scope_key in var.clients[each.key].default_scopes :
     module.client_scopes.scope_names[each.key][scope_key]
   ]
   depends_on = [module.client_scopes]
@@ -62,6 +62,9 @@ resource "keycloak_saml_identity_provider" "saml_idp" {
   enabled                    = var.saml_enabled
   principal_type             = var.saml_principal_type
   principal_attribute        = var.saml_principal_attribute
+  validate_signature         = true
+  post_binding_response      = true
+  want_assertions_signed     = true
 }
 
 resource "keycloak_attribute_importer_identity_provider_mapper" "saml_idp" {
