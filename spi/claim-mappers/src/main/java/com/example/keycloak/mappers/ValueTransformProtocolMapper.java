@@ -13,6 +13,11 @@ import org.keycloak.representations.IDToken;
 import org.keycloak.util.JsonSerialization;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
@@ -23,6 +28,7 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
   private static final String CFG_SOURCE_USER_ATTR = "source.user.attribute";
   private static final String CFG_TARGET_CLAIM = "target.claim.name";
   private static final String CFG_MAPPING_INLINE = "mapping.inline";
+  private static final String CFG_MAPPING_FILE = "mapping.file";
   private static final String CFG_USE_AUTO_CLIENT_KEY = "mapping.client.autoKey";
   private static final String CFG_CLIENT_ATTR_KEY = "mapping.client.key";
   private static final String CFG_FALLBACK_ORIGINAL = "fallback.original";
@@ -56,40 +62,48 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
     p3.setLabel("Mapping (inline)");
     p3.setType(ProviderConfigProperty.TEXT_TYPE);
     p3.setHelpText("Mapping rules. CSV: A01:finance,A02:people OR JSON: {\"A01\":\"finance\"}. "
-        + "If empty, reads mapping from client attributes.");
+        + "If empty, reads mapping from file/URL or client attributes.");
     props.add(p3);
 
     ProviderConfigProperty p4 = new ProviderConfigProperty();
-    p4.setName(CFG_USE_AUTO_CLIENT_KEY);
-    p4.setLabel("Use client attribute auto-key (map.<source>)");
-    p4.setType(ProviderConfigProperty.BOOLEAN_TYPE);
-    p4.setHelpText("If enabled, reads mapping from client attribute 'map.<source.user.attribute>' (e.g. map.dept_code).");
-    p4.setDefaultValue("true");
+    p4.setName(CFG_MAPPING_FILE);
+    p4.setLabel("Mapping (file/URL)");
+    p4.setType(ProviderConfigProperty.STRING_TYPE);
+    p4.setHelpText("File path or URL pointing to a JSON map (e.g. /opt/keycloak/maps/dept.json). "
+        + "If empty, reads mapping from client attributes.");
     props.add(p4);
 
     ProviderConfigProperty p5 = new ProviderConfigProperty();
-    p5.setName(CFG_CLIENT_ATTR_KEY);
-    p5.setLabel("Client attribute key (manual/legacy)");
-    p5.setType(ProviderConfigProperty.STRING_TYPE);
-    p5.setHelpText("Client attribute key to load mapping from if auto-key is missing/disabled (e.g. dept.map).");
-    p5.setDefaultValue("dept.map");
+    p5.setName(CFG_USE_AUTO_CLIENT_KEY);
+    p5.setLabel("Use client attribute auto-key (map.<source>)");
+    p5.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+    p5.setHelpText("If enabled, reads mapping from client attribute 'map.<source.user.attribute>' (e.g. map.dept_code).");
+    p5.setDefaultValue("true");
     props.add(p5);
 
     ProviderConfigProperty p6 = new ProviderConfigProperty();
-    p6.setName(CFG_FALLBACK_ORIGINAL);
-    p6.setLabel("Fallback to original value");
-    p6.setType(ProviderConfigProperty.BOOLEAN_TYPE);
-    p6.setHelpText("If no mapping found, use original value. If false, omit claim.");
-    p6.setDefaultValue("true");
+    p6.setName(CFG_CLIENT_ATTR_KEY);
+    p6.setLabel("Client attribute key (manual/legacy)");
+    p6.setType(ProviderConfigProperty.STRING_TYPE);
+    p6.setHelpText("Client attribute key to load mapping from if auto-key is missing/disabled (e.g. dept.map).");
+    p6.setDefaultValue("dept.map");
     props.add(p6);
 
     ProviderConfigProperty p7 = new ProviderConfigProperty();
-    p7.setName(CFG_MULTI_VALUE);
-    p7.setLabel("Allow multi-value source attribute");
+    p7.setName(CFG_FALLBACK_ORIGINAL);
+    p7.setLabel("Fallback to original value");
     p7.setType(ProviderConfigProperty.BOOLEAN_TYPE);
-    p7.setHelpText("If enabled, maps all values from a multi-value user attribute and writes a list claim.");
-    p7.setDefaultValue("false");
+    p7.setHelpText("If no mapping found, use original value. If false, omit claim.");
+    p7.setDefaultValue("true");
     props.add(p7);
+
+    ProviderConfigProperty p8 = new ProviderConfigProperty();
+    p8.setName(CFG_MULTI_VALUE);
+    p8.setLabel("Allow multi-value source attribute");
+    p8.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+    p8.setHelpText("If enabled, maps all values from a multi-value user attribute and writes a list claim.");
+    p8.setDefaultValue("false");
+    props.add(p8);
 
     OIDCAttributeMapperHelper.addIncludeInTokensConfig(props, ValueTransformProtocolMapper.class);
 
@@ -164,28 +178,63 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
   private static Map<String, String> loadMapping(ProtocolMapperModel model,
                                                  ClientSessionContext ctx,
                                                  String sourceAttr) {
-    // 1) inline mapping
-    String inline = getConfig(model, CFG_MAPPING_INLINE, "");
-    if (inline != null && !inline.isBlank()) {
-      return parseMapping(inline);
-    }
+    Map<String, String> merged = new LinkedHashMap<>();
 
     ClientModel client = ctx.getClientSession().getClient();
 
-    // 2) auto-key map.<sourceAttr>
+    // 4) manual/legacy key (lowest priority)
+    String manualKey = getConfig(model, CFG_CLIENT_ATTR_KEY, "dept.map");
+    String mv = client.getAttribute(manualKey);
+    if (mv != null && !mv.isBlank()) {
+      merged.putAll(parseMapping(mv));
+    }
+
+    // 3) auto-key map.<sourceAttr>
     boolean useAutoKey = Boolean.parseBoolean(getConfig(model, CFG_USE_AUTO_CLIENT_KEY, "true"));
     if (useAutoKey) {
       String autoKey = "map." + sourceAttr;
       String v = client.getAttribute(autoKey);
-      if (v != null && !v.isBlank()) return parseMapping(v);
+      if (v != null && !v.isBlank()) {
+        merged.putAll(parseMapping(v));
+      }
     }
 
-    // 3) manual/legacy key
-    String manualKey = getConfig(model, CFG_CLIENT_ATTR_KEY, "dept.map");
-    String mv = client.getAttribute(manualKey);
-    if (mv != null && !mv.isBlank()) return parseMapping(mv);
+    // 2) mapping file/URL
+    String mappingFile = getConfig(model, CFG_MAPPING_FILE, "");
+    if (mappingFile != null && !mappingFile.isBlank()) {
+      merged.putAll(readMappingFile(mappingFile));
+    }
 
-    return Map.of();
+    // 1) inline mapping (highest priority)
+    String inline = getConfig(model, CFG_MAPPING_INLINE, "");
+    if (inline != null && !inline.isBlank()) {
+      merged.putAll(parseMapping(inline));
+    }
+
+    return merged.isEmpty() ? Map.of() : merged;
+  }
+
+  private static Map<String, String> readMappingFile(String location) {
+    String trimmed = location == null ? "" : location.trim();
+    if (trimmed.isEmpty()) return Map.of();
+
+    try {
+      String json;
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("file:")) {
+        try (InputStream in = new URL(trimmed).openStream()) {
+          json = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+      } else {
+        json = Files.readString(Path.of(trimmed), StandardCharsets.UTF_8);
+      }
+      if (json == null || json.isBlank()) return Map.of();
+
+      Map<String, String> m = JsonSerialization.readValue(json, new TypeReference<Map<String, String>>() {});
+      return (m == null) ? Map.of() : m;
+    } catch (IOException e) {
+      LOG.warnf("Failed to read JSON mapping from '%s': %s", trimmed, e.getMessage());
+      return Map.of();
+    }
   }
 
   private static Map<String, String> parseMapping(String raw) {
