@@ -1,4 +1,8 @@
 keycloak_url            = "https://keycloak.dev.example.com"
+# Optional: override bootstrap-derived auth realm/client.
+# keycloak_auth_realm      = "terraform"
+# keycloak_client_id       = "terraform"
+# keycloak_client_secret   = "replace-me"
 keycloak_container_name = "keycloak-dev"
 
 bootstrap_state_bucket     = "keycloak-terraform-state"
@@ -16,6 +20,11 @@ clients = {
     redirect_uris = ["https://app.dev.example.com/*"]
     web_origins   = ["https://app.dev.example.com"]
     login_theme   = "AAP"
+    # Optional client settings (defaults defined in variables.tf)
+    access_type                 = "PUBLIC"
+    standard_flow_enabled       = true
+    direct_access_grants_enabled = false
+    pkce_code_challenge_method  = "S256"
 
     scopes = {
       terms = {
@@ -25,6 +34,8 @@ clients = {
             required = true
             version  = "2026-01-16"
             url      = "https://example.com/privacy"
+            template = "terms-privacy.ftl"
+            key      = "privacy"
           }
         }
       }
@@ -98,6 +109,7 @@ clients = {
 saml_idp_alias           = "corp-saml"
 saml_idp_display_name    = "Corp SAML"
 saml_entity_id           = "https://sso.dev.example.com/metadata"
+saml_idp_entity_id       = "https://sso.dev.example.com/idp"
 saml_sso_url             = "https://sso.dev.example.com/saml/sso"
 saml_slo_url             = "https://sso.dev.example.com/saml/slo"
 saml_signing_certificate = "-----BEGIN CERTIFICATE-----\nMIID...snip...\n-----END CERTIFICATE-----"
