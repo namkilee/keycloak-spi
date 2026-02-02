@@ -52,6 +52,12 @@ variable "clients" {
     web_origins   = list(string)
     login_theme   = optional(string, "AAP")
 
+    # client settings
+    access_type   = optional(string, "PUBLIC")
+    standard_flow_enabled = optional(bool, true)
+    direct_access_grants_enabled = optional(bool, false)
+    pkce_code_challenge_method = optional(string, "S256")
+
     scopes = map(object({
       description = optional(string, "")
 
@@ -107,6 +113,10 @@ variable "saml_entity_id" {
   type = string
 }
 
+variable "saml_idp_entity_id" {
+  type = string
+}
+
 variable "saml_sso_url" {
   type = string
 }
@@ -129,6 +139,19 @@ variable "saml_principal_type" {
 
 variable "saml_principal_attribute" {
   type = string
+}
+
+variable "saml_name_id_policy_format" {
+  type = string
+  default = "Unspecified"
+
+  validation {
+    condition = contains([
+      "Email", "Kerberos", "X.509 Subject Name", "Unspecified",
+      "Transient", "Windows Domain Qualified Name", "Persistent"
+    ], val.saml_name_id_policy_format)
+    error_message = "Invalid saml_name_id_policy_format."
+  }
 }
 
 variable "saml_idp_mappers" {

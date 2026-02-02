@@ -21,6 +21,7 @@ module "realm_clients" {
   saml_idp_alias           = var.saml_idp_alias
   saml_idp_display_name    = var.saml_idp_display_name
   saml_entity_id           = var.saml_entity_id
+  saml_idp_entity_id       = var.saml_idp_entity_id
   saml_sso_url             = var.saml_sso_url
   saml_slo_url             = var.saml_slo_url
   saml_signing_certificate = var.saml_signing_certificate

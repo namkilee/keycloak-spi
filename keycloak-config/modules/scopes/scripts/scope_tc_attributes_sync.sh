@@ -4,7 +4,7 @@ set -euo pipefail
 # =========================
 # Required envs
 # =========================
-: "${KCADM_PATH:?}"
+: "${KCADM_PATH:-/opt/bitnami/keycloak/bin/}"
 : "${KCADM_EXEC_MODE:?}"         # docker | kubectl
 : "${KEYCLOAK_URL:?}"
 : "${KEYCLOAK_AUTH_REALM:?}"
@@ -28,11 +28,11 @@ PREFIX="${TC_PREFIX_ROOT}.${SCOPE_KEY}."
 KEYCLOAK_TLS_MODE="${KEYCLOAK_TLS_MODE:-truststore}"
 
 # IMPORTANT: must be a path INSIDE container/pod because kcadm runs there
-KEYCLOAK_CA_CERT_PEM="${KEYCLOAK_CA_CERT_PEM:-}"
+KEYCLOAK_CA_CERT_PEM="${KEYCLOAK_CA_CERT_PEM:-/certs/tls.crt}"
 
 KCADM_TRUSTSTORE_DIR="${KCADM_TRUSTSTORE_DIR:-/tmp}"
 KCADM_TRUSTSTORE_FILE="${KCADM_TRUSTSTORE_FILE:-${KCADM_TRUSTSTORE_DIR}/kcadm-truststore.jks}"
-KCADM_TRUSTSTORE_PASS="${KCADM_TRUSTSTORE_PASS:-changeit}"
+KCADM_TRUSTSTORE_PASS="${KCADM_TRUSTSTORE_PASS:-keycloak}"
 KCADM_TRUSTSTORE_ALIAS="${KCADM_TRUSTSTORE_ALIAS:-keycloak-ca}"
 
 KC_TMP_DIR="${KC_TMP_DIR:-/tmp}"

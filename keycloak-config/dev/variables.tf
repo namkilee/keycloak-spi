@@ -57,6 +57,12 @@ variable "clients" {
     web_origins   = list(string)
     login_theme   = optional(string, "AAP")
 
+    # client settings
+    access_type   = optional(string, "PUBLIC")
+    standard_flow_enabled = optional(bool, true)
+    direct_access_grants_enabled = optional(bool, false)
+    pkce_code_challenge_method = optional(string, "S256")
+
     scopes = map(object({
       description = optional(string, "")
 
@@ -101,6 +107,22 @@ variable "clients" {
     ]))
     error_message = "clients[*].mappers[*].scope must reference an existing scope key in clients[*].scopes."
   }
+
+  validation {
+    condition = alltrue([
+      for c in values(var.clients) :
+      contains(["PUBLIC", "CONFIDENTIAL"], c.access_type)
+    ])
+    error_message = "clients[*].access_type must be PUBLIC or CONFIDENTIAL."
+  }
+
+  validation {
+    condition = alltrue([
+      for c in values(var.clients) :
+      contains(["S256", "plain"], c.pkce_code_challenge_method)
+    ])
+    error_message = "clients[*].pkce_code_challenge_method must be S256 or plain."
+  }
 }
 
 variable "saml_idp_alias" {
@@ -112,6 +134,10 @@ variable "saml_idp_display_name" {
 }
 
 variable "saml_entity_id" {
+  type = string
+}
+
+variable "saml_idp_entity_id" {
   type = string
 }
 
@@ -174,39 +200,39 @@ variable "saml_idp_mappers" {
   }
 
   validation {
-  condition = alltrue([
-    for mapper in var.saml_idp_mappers : (
-      mapper.type == "attribute_importer" ? (
-        mapper.user_attribute != null && (
-          mapper.attribute_name != null ||
-          mapper.attribute_friendly_name != null ||
-          mapper.claim_name != null
-        )
-      ) :
-      mapper.type == "hardcoded_attribute" ? (
-        mapper.attribute_name != null &&
-        mapper.attribute_value != null &&
-        mapper.user_session != null
-      ) :
-      mapper.type == "attribute_to_role" ? (
-        mapper.role != null && (
-          mapper.attribute_name != null ||
-          mapper.attribute_friendly_name != null ||
-          mapper.claim_name != null
-        )
-      ) :
-      mapper.type == "hardcoded_group" ? (
-        mapper.group != null
-      ) :
-      mapper.type == "hardcoded_role" ? (
-        mapper.role != null
-      ) :
-      mapper.type == "custom" ? (
-        mapper.identity_provider_mapper != null
-      ) :
-      false
-    )
-  ])
-  error_message = "saml_idp_mappers entries must provide required fields for their type."
-}
+    condition = alltrue([
+      for mapper in var.saml_idp_mappers : (
+        mapper.type == "attribute_importer" ? (
+          mapper.user_attribute != null && (
+            mapper.attribute_name != null ||
+            mapper.attribute_friendly_name != null ||
+            mapper.claim_name != null
+          )
+        ) :
+        mapper.type == "hardcoded_attribute" ? (
+          mapper.attribute_name != null &&
+          mapper.attribute_value != null &&
+          mapper.user_session != null
+        ) :
+        mapper.type == "attribute_to_role" ? (
+          mapper.role != null && (
+            mapper.attribute_name != null ||
+            mapper.attribute_friendly_name != null ||
+            mapper.claim_name != null
+          )
+        ) :
+        mapper.type == "hardcoded_group" ? (
+          mapper.group != null
+        ) :
+        mapper.type == "hardcoded_role" ? (
+          mapper.role != null
+        ) :
+        mapper.type == "custom" ? (
+          mapper.identity_provider_mapper != null
+        ) :
+        false
+      )
+    ])
+    error_message = "saml_idp_mappers entries must provide required fields for their type."
+  }
 }

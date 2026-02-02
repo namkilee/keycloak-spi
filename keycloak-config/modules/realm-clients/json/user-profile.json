@@ -1,0 +1,63 @@
+{
+    "attributes" : [ {
+        "name" : "username",
+        "displayName" : "${username}",
+        "validations" : {
+            "length" : {
+                "min" : 3,
+                "max" : 255
+            },
+            "username-prohibited-characters" : { },
+            "up-username-not-idn-homograph" : { }
+        },
+        "permissions" : {
+            "view" : [ "admin", "user" ],
+            "edit" : [ "admin", "user" ]
+        },
+        "multivalued" : false
+    }, {
+        "name" : "eamil",
+        "displayName" : "${email}",
+        "validations" : {
+            "email" : { },
+            "length" : {
+                "max" : 255
+            },
+            "username-prohibited-characters" : { },
+            "up-username-not-idn-homograph" : { }
+        },
+        "annotations" : { },
+        "permissions" : {
+            "view" : [ "admin", "user" ],
+            "edit" : [ "admin", "user" ]
+        },
+        "multivalued" : false
+    }, {
+        "name" : "deptName",
+        "displayName" : "${deptName}",
+        "permissions" : {
+            "view" : [ "admin", "user" ],
+            "edit" : [ "admin", "user" ]
+        },
+        "required": {
+            "reles" : [ "user" ]
+        },
+        "multivalued" : false
+    }, {
+        "name" : "deptId",
+        "displayName" : "${deptId}",
+        "permissions" : {
+            "view" : [ "admin", "user" ],
+            "edit" : [ "admin", "user" ]
+        },
+        "required": {
+            "reles" : [ "user" ]
+        },
+        "multivalued" : false
+    } ],
+    "groups" : [ {
+        "name" : "user-metadata",
+        "displayHeader" : "User metadata",
+        "displayDescription" : "Attributes, which refer to user meatadata"
+    } ]
+}

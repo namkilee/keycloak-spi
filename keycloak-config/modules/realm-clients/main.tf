@@ -29,9 +29,10 @@ resource "keycloak_openid_client" "app" {
   client_id                    = each.value.client_id
   name                         = each.value.name
   enabled                      = true
-  access_type                  = "CONFIDENTIAL"
-  standard_flow_enabled        = true
-  direct_access_grants_enabled = true
+  access_type                  = each.value.access_type
+  standard_flow_enabled        = each.value.standard_flow_enabled
+  direct_access_grants_enabled = each.value.direct_access_grants_enabled
+  pkce_code_challenge_method   = each.value.pkce_code_challenge_method
   root_url                     = each.value.root_url
   base_url                     = each.value.root_url
   valid_redirect_uris          = each.value.redirect_uris
@@ -62,9 +63,13 @@ resource "keycloak_saml_identity_provider" "saml_idp" {
   enabled                    = var.saml_enabled
   principal_type             = var.saml_principal_type
   principal_attribute        = var.saml_principal_attribute
+  name_id_policy_format      = var.saml_name_id_policy_format
   validate_signature         = true
   post_binding_response      = true
   want_assertions_signed     = true
+  extra_config = {
+    idpEntityId = var.saml_idp_entity_id
+  }
 }
 
 resource "keycloak_attribute_importer_identity_provider_mapper" "saml_idp" {
@@ -172,3 +177,55 @@ resource "keycloak_hardcoded_role_identity_provider_mapper" "saml_idp" {
     { syncMode = each.value.sync_mode }
   )
 }
+
+locals {
+  user_profile = jsondecode(file("${path.module}/json/user-profile.json"))
+}
+
+resource "keycloak_realm_user_profile" "userprofile" {
+  realm_id = var.realm_id
+
+  dynamic "attribute" {
+    for_each = try(local.user_profile.attributes, [])
+    content {
+      name = attribute.value.name
+      display_name = try(attribute.value.displayName, null)
+      multi_valued = attribute.value.multi_valued
+      required_for_roles = try(attribute.value.required.roles, [])
+      required_for_scopes = try(attribute.value.required.scopes, [])
+      annotations = {
+        for k, v in try(attribute.value.annotations, {}) :
+        k => (can(tostring(v)) ? tostring(v) : jsonencode(v))
+      }
+
+      dynamic "permissions" {
+        for_each = try([attribute.value.permissions], [])
+        content {
+          veiw = try(permissions.value.view, [])
+          edit = try(permissions.value.edit, [])
+        }
+      }
+
+      dynamic "validator" {
+        for_each = try(attribute.value.validations, [])
+        content {
+          name = validator.key
+          config = try(validator.value, {})
+        }
+      }
+    }
+  }
+
+  dynamic "group" {
+    for_each = try(local.user_profile.groups, [])
+    content {
+      name = group.value.name
+      display_header = group.value.displayDescription
+      annotations = {
+        for k, v in try(group.value.annotations, {}) :
+        k => (can(tostring(v)) ? tostring(v) : jsonencode(v))
+      }
+    }
+  }
+}
+
