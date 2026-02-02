@@ -55,6 +55,7 @@ This module provides a protocol mapper that transforms a user attribute value in
 - `mapping.inline`: Mapping rules inline. Supports:
   - CSV: `A01:finance,A02:people`
   - JSON: `{ "A01": "finance", "A02": "people" }`
+- `mapping.file`: File path or URL to a JSON mapping document.
 - `mapping.client.autoKey`: If `true`, reads mapping from client attribute `map.<source.user.attribute>`.
 - `mapping.client.key`: Manual/legacy client attribute key (used if auto-key is disabled or missing).
 - `fallback.original`: If `true`, uses the original value when no mapping exists.
@@ -62,9 +63,13 @@ This module provides a protocol mapper that transforms a user attribute value in
 
 #### Mapping resolution order
 
+Mappings are merged from lowest to highest priority. When the same key appears multiple times, higher-priority sources override lower ones.
+
+Priority (highest → lowest):
 1. `mapping.inline`
-2. Client attribute `map.<source.user.attribute>` (if enabled)
-3. Client attribute `mapping.client.key`
+2. `mapping.file`
+3. Client attribute `map.<source.user.attribute>` (if enabled)
+4. Client attribute `mapping.client.key`
 
 ## Keycloak Terraform Config (keycloak-config)
 
