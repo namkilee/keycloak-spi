@@ -66,6 +66,33 @@ This module provides a protocol mapper that transforms a user attribute value in
 2. Client attribute `map.<source.user.attribute>` (if enabled)
 3. Client attribute `mapping.client.key`
 
+## Keycloak Terraform Config (keycloak-config)
+
+Keycloak Terraform 구성은 `bootstrap`과 환경별(`dev|stg|prd`) 루트로 나뉜다.
+`bootstrap`은 Terraform용 서비스 계정과 기본 Realm을 생성하고, 각 환경은 부트스트랩 상태를 원격 상태로 읽어 실제 Realm 구성과 클라이언트/스코프/IDP를 설정한다.
+
+### 주요 개념
+
+- **terms scope 설정**
+  - **dev**: `clients[*].scopes.<scope>.tc_sets`로 여러 약관 세트를 정의할 수 있다.
+  - **stg/prd**: `clients[*].scopes.<scope>.terms_attributes`로 단일 약관 세트를 정의한다(레거시 형식).
+- **kcadm 실행 모드**
+  - **dev**는 Docker 컨테이너 내부에서 `kcadm.sh`를 실행하며 `keycloak_container_name`이 필요하다.
+  - **stg/prd**는 Kubernetes에서 `kubectl exec`를 사용하므로 `keycloak_namespace`, `keycloak_pod_selector`가 필요하다.
+- **SAML IdP**
+  - 모든 환경에서 SAML IdP 설정 및 매퍼 배열(`saml_idp_mappers`)을 지원한다.
+
+### Terraform 변수 예시
+
+필수/옵션 변수는 환경별 `terraform.tfvars.example`을 기준으로 관리한다.
+
+- `keycloak-config/bootstrap/terraform.tfvars.example`
+- `keycloak-config/dev/terraform.tfvars.example`
+- `keycloak-config/stg/terraform.tfvars.example`
+- `keycloak-config/prd/terraform.tfvars.example`
+
+환경별 자세한 구조와 주의사항은 [`keycloak-config/README.md`](keycloak-config/README.md)를 참고한다.
+
 ## Prerequisites
 
 - Java 17 (see `spi/pom.xml` `<java.version>17</java.version>`).

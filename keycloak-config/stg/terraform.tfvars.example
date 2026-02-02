@@ -14,11 +14,55 @@ bootstrap_state_endpoint   = "https://minio.example.com"
 bootstrap_state_access_key = "minio"
 bootstrap_state_secret_key = "minio123"
 
-client_id           = "app"
-client_name         = "Sample App"
-client_root_url     = "https://app.stg.example.com"
-client_redirect_uris = ["https://app.stg.example.com/*"]
-client_web_origins   = ["https://app.stg.example.com"]
+clients = {
+  app = {
+    client_id     = "app"
+    name          = "Sample App"
+    root_url      = "https://app.stg.example.com"
+    redirect_uris = ["https://app.stg.example.com/*"]
+    web_origins   = ["https://app.stg.example.com"]
+    login_theme   = "AAP"
+
+    scopes = {
+      terms = {
+        description = "Terms & Conditions"
+        terms_attributes = {
+          required = true
+          version  = "2026-01-16"
+          url      = "https://example.com/privacy"
+        }
+      }
+
+      claims = {
+        description = "Claims scope"
+      }
+    }
+
+    default_scopes = ["terms", "claims"]
+
+    mappers = [
+      {
+        name            = "dept-transform"
+        scope           = "claims"
+        protocol_mapper = "value-transform-protocol-mapper"
+        config = {
+          "source.user.attribute"       = "dept_code"
+          "target.claim.name"           = "dept"
+          "mapping.inline"              = "A01:finance,A02:people"
+          "mapping.client.autoKey"      = "true"
+          "mapping.client.key"          = "dept.map"
+          "fallback.original"           = "true"
+          "source.user.attribute.multi" = "false"
+          "access.token.claim"          = "true"
+          "id.token.claim"              = "true"
+          "userinfo.token.claim"        = "true"
+          "claim.name"                  = "dept"
+          "jsonType.label"              = "String"
+        }
+      }
+    ]
+  }
+}
 
 saml_idp_alias            = "corp-saml"
 saml_idp_display_name     = "Corp SAML"
