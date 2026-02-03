@@ -4,6 +4,7 @@ This repository contains a multi-module Maven project that delivers Keycloak Ser
 
 - **Terms & Conditions Required Action** (`terms-ra`)
 - **Value Transform Protocol Mapper** (`claim-mappers`)
+- **User Info Sync SPI** (`user-info-sync`)
 
 ## Repository Structure
 
@@ -88,6 +89,36 @@ Priority (highest → lowest):
 5. Client attribute `map.<source.user.attribute>` (if enabled)
 6. Client attribute `mapping.client.key`
 
+### User Info Sync SPI (`user-info-sync`)
+
+This module provides a scheduled task that synchronizes a user department attribute from a Knox REST API.
+It supports multi-realm execution, realm attribute tuning, and cluster-safe once-per-day execution using a task key.
+
+#### Environment variables
+
+- `KNOX_API_URL`: Knox API endpoint (POST URL).
+- `KNOX_SYSTEM_ID`: Knox system-id header value.
+- `KNOX_API_TOKEN`: Knox bearer token (without the `Bearer ` prefix).
+
+#### Realm attribute keys
+
+- `userinfosync.enabled`: Enable sync (`true|false`).
+- `userinfosync.runAt`: Run time in `HH:mm` (default `03:00`).
+- `userinfosync.windowMinutes`: Allowed window in minutes (default `3`).
+- `userinfosync.batchSize`: Paging batch size (default `500`).
+- `userinfosync.deptAttrKey`: User attribute key for department (default `deptId`).
+- `userinfosync.resultType`: Knox result type (`basic|optional`, default `basic`).
+- `userinfosync.httpTimeoutMs`: HTTP timeout in milliseconds (default `5000`).
+- `userinfosync.maxConcurrency`: Parallel Knox calls (default `15`).
+- `userinfosync.retry.maxAttempts`: Retry attempts for retryable errors (default `3`).
+- `userinfosync.retry.baseBackoffMs`: Base backoff in milliseconds (default `250`).
+- `userinfosync.taskKeyPrefix`: Cluster task key prefix (default `userinfosync`).
+
+#### Sync behavior
+
+- Task key is `userinfosync:{realmId}:{yyyyMMdd}` by default and uses cluster execution with a 26-hour TTL.
+- When a user department changes, the SPI updates the attribute, sets `notBefore`, and logs out user sessions.
+
 ## Keycloak Terraform Config (keycloak-config)
 
 Keycloak Terraform 구성은 `bootstrap`과 환경별(`dev|stg|prd`) 루트로 나뉜다.
@@ -126,5 +157,5 @@ Keycloak Terraform 구성은 `bootstrap`과 환경별(`dev|stg|prd`) 루트로 �
 From the `spi` directory:
 
 ```
-./mvnw -q -pl terms-ra,claim-mappers -am package
+./mvnw -q -pl terms-ra,claim-mappers,user-info-sync -am package
 ```

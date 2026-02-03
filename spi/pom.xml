@@ -11,6 +11,7 @@
   <modules>
     <module>terms-ra</module>
     <module>claim-mappers</module>
+    <module>user-info-sync</module>
   </modules>
 
   <properties>
