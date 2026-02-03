@@ -7,6 +7,11 @@ output "bootstrap_realm_id" {
   value       = keycloak_realm.bootstrap.id
 }
 
+output "bootstrap_realm_name" {
+  description = "Realm name created for terraform bootstrap"
+  value       = keycloak_realm.bootstrap.realm
+}
+
 output "terraform_client_secret" {
   description = "Client secret for terraform client (treat as password)"
   value       = keycloak_openid_client.terraform.client_secret

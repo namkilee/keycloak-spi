@@ -6,14 +6,22 @@ import java.time.Duration;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 public final class UserInfoSyncRealmConfig {
+  private static final ObjectMapper OM = new ObjectMapper();
+  private static final String DEFAULT_MAPPING_JSON =
+      "{\"deptId\":\"response.employees.departmentCode\"}";
+
   public final boolean enabled;
   public final String runAt;
   public final int windowMinutes;
   public final int batchSize;
-  public final String deptAttrKey;
   public final String resultType;
   public final int httpTimeoutMs;
   public final int maxConcurrency;
@@ -21,26 +29,28 @@ public final class UserInfoSyncRealmConfig {
   public final int retryBaseBackoffMs;
   public final String taskKeyPrefix;
   public final ZoneId timezone;
+  public final Map<String, String> mapping;
+  public final Set<String> invalidateOnKeys;
 
   private UserInfoSyncRealmConfig(
       boolean enabled,
       String runAt,
       int windowMinutes,
       int batchSize,
-      String deptAttrKey,
       String resultType,
       int httpTimeoutMs,
       int maxConcurrency,
       int retryMaxAttempts,
       int retryBaseBackoffMs,
       String taskKeyPrefix,
-      ZoneId timezone
+      ZoneId timezone,
+      Map<String, String> mapping,
+      Set<String> invalidateOnKeys
   ) {
     this.enabled = enabled;
     this.runAt = runAt;
     this.windowMinutes = windowMinutes;
     this.batchSize = batchSize;
-    this.deptAttrKey = deptAttrKey;
     this.resultType = resultType;
     this.httpTimeoutMs = httpTimeoutMs;
     this.maxConcurrency = maxConcurrency;
@@ -48,6 +58,8 @@ public final class UserInfoSyncRealmConfig {
     this.retryBaseBackoffMs = retryBaseBackoffMs;
     this.taskKeyPrefix = taskKeyPrefix;
     this.timezone = timezone;
+    this.mapping = mapping;
+    this.invalidateOnKeys = invalidateOnKeys;
   }
 
   public static UserInfoSyncRealmConfig fromRealm(RealmModel realm) {
@@ -57,13 +69,14 @@ public final class UserInfoSyncRealmConfig {
     String runAt = attrs.getOrDefault("userinfosync.runAt", "03:00");
     int window = parseInt(attrs.getOrDefault("userinfosync.windowMinutes", "3"), 3);
     int batch = parseInt(attrs.getOrDefault("userinfosync.batchSize", "500"), 500);
-    String deptKey = attrs.getOrDefault("userinfosync.deptAttrKey", "deptId");
     String resultType = attrs.getOrDefault("userinfosync.resultType", "basic");
     int timeout = parseInt(attrs.getOrDefault("userinfosync.httpTimeoutMs", "5000"), 5000);
     int conc = parseInt(attrs.getOrDefault("userinfosync.maxConcurrency", "15"), 15);
     int retry = parseInt(attrs.getOrDefault("userinfosync.retry.maxAttempts", "3"), 3);
     int backoff = parseInt(attrs.getOrDefault("userinfosync.retry.baseBackoffMs", "250"), 250);
     String prefix = attrs.getOrDefault("userinfosync.taskKeyPrefix", "userinfosync");
+    String mappingJson = attrs.getOrDefault("userinfosync.mappingJson", DEFAULT_MAPPING_JSON);
+    String invalidateCsv = attrs.getOrDefault("userinfosync.invalidateOnKeys", "deptId");
 
     ZoneId tz = ZoneId.systemDefault();
 
@@ -76,14 +89,15 @@ public final class UserInfoSyncRealmConfig {
         runAt,
         window,
         batch,
-        deptKey,
         resultType,
         timeout,
         conc,
         retry,
         backoff,
         prefix,
-        tz
+        tz,
+        parseMappingJson(mappingJson),
+        parseCsv(invalidateCsv)
     );
   }
 
@@ -120,5 +134,28 @@ public final class UserInfoSyncRealmConfig {
     } catch (Exception e) {
       return fallback;
     }
+  }
+
+  private static Map<String, String> parseMappingJson(String json) {
+    if (json == null || json.isBlank()) {
+      return Collections.emptyMap();
+    }
+    try {
+      Map<String, String> mapping = OM.readValue(json, OM.getTypeFactory()
+          .constructMapType(Map.class, String.class, String.class));
+      return mapping == null ? Collections.emptyMap() : mapping;
+    } catch (Exception e) {
+      throw new IllegalArgumentException("Invalid userinfosync.mappingJson", e);
+    }
+  }
+
+  private static Set<String> parseCsv(String csv) {
+    if (csv == null || csv.isBlank()) {
+      return Collections.emptySet();
+    }
+    return java.util.Arrays.stream(csv.split(","))
+        .map(String::trim)
+        .filter(s -> !s.isEmpty())
+        .collect(Collectors.toSet());
   }
 }

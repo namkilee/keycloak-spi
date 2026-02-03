@@ -20,3 +20,18 @@ realm_management_roles = [
 ]
 
 client_secret_override = null
+
+userinfosync_defaults = {
+  enabled            = false
+  runAt              = "03:00"
+  windowMinutes      = 3
+  batchSize          = 500
+  resultType         = "basic"
+  httpTimeoutMs      = 5000
+  maxConcurrency     = 15
+  retryMaxAttempts   = 3
+  retryBaseBackoffMs = 250
+  taskKeyPrefix      = "userinfosync"
+  mappingJson        = jsonencode({ deptId = "response.employees.departmentCode" })
+  invalidateOnKeys   = "deptId"
+}

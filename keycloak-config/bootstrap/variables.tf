@@ -68,3 +68,21 @@ variable "client_secret_override" {
   default     = null
   sensitive   = true
 }
+
+variable "userinfosync_defaults" {
+  description = "Default UserInfoSync realm attribute settings."
+  type        = map(any)
+  default     = {}
+}
+
+variable "userinfosync_overrides" {
+  description = "Override UserInfoSync realm attribute settings."
+  type        = map(any)
+  default     = {}
+}
+
+variable "extra_realm_attributes" {
+  description = "Additional realm attributes to apply to the bootstrap realm."
+  type        = map(string)
+  default     = {}
+}
