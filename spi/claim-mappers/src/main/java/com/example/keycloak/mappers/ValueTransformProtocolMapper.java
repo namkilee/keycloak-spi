@@ -361,10 +361,27 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
   }
 
   private static String cacheKey(ProtocolMapperModel model, ClientModel client, String sourceAttr) {
-    String mapperId = model.getId() == null ? "unknown" : model.getId();
-    String clientId = client.getClientId() == null ? "unknown" : client.getClientId();
-    int configHash = model.getConfig() == null ? 0 : model.getConfig().hashCode();
-    return mapperId + ":" + clientId + ":" + sourceAttr + ":" + configHash;
+    int configHash = cacheConfigHash(model);
+    return String.valueOf(configHash);
+  }
+
+  private static int cacheConfigHash(ProtocolMapperModel model) {
+    Map<String, String> config = model.getConfig();
+    if (config == null || config.isEmpty()) return 0;
+
+    Map<String, String> scoped = new TreeMap<>();
+    for (Map.Entry<String, String> entry : config.entrySet()) {
+      String key = entry.getKey();
+      if (key == null) continue;
+      if (CFG_SOURCE_USER_ATTR.equals(key)
+          || CFG_MAPPING_INLINE.equals(key)
+          || CFG_MAPPING_FILE.equals(key)
+          || key.startsWith("mapping.db.")
+          || key.startsWith("mapping.api.")) {
+        scoped.put(key, entry.getValue());
+      }
+    }
+    return scoped.hashCode();
   }
 
   private static Map<String, String> getCachedMapping(ProtocolMapperModel model, String cacheKey) {
