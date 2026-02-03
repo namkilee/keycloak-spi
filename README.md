@@ -70,6 +70,7 @@ This module provides a protocol mapper that transforms a user attribute value in
 - `mapping.api.timeout.ms`: API timeout in milliseconds.
 - `mapping.cache.enabled`: Cache merged mappings in memory.
 - `mapping.cache.ttl.seconds`: Cache TTL in seconds.
+- Cache key scope: Cache entries are shared across clients and mapper instances when the following config values match: `source.user.attribute`, `mapping.inline`, `mapping.file`, `mapping.db.*`, `mapping.api.*` (cache policy settings like `mapping.cache.*` do not affect the key).
 - `mapping.client.autoKey`: If `true`, reads mapping from client attribute `map.<source.user.attribute>`.
 - `mapping.client.key`: Manual/legacy client attribute key (used if auto-key is disabled or missing).
 - `fallback.original`: If `true`, uses the original value when no mapping exists.
