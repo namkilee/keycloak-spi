@@ -37,6 +37,7 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
   private static final String CFG_TARGET_CLAIM = "target.claim.name";
   private static final String CFG_MAPPING_INLINE = "mapping.inline";
   private static final String CFG_MAPPING_FILE = "mapping.file";
+
   private static final String CFG_MAPPING_DB_ENABLED = "mapping.db.enabled";
   private static final String CFG_MAPPING_DB_JDBC_URL = "mapping.db.jdbc.url";
   private static final String CFG_MAPPING_DB_USERNAME = "mapping.db.username";
@@ -97,6 +98,7 @@ public class ValueTransformProtocolMapper extends AbstractOIDCProtocolMapper
     props.add(p4);
 
     ProviderConfigProperty p5 = new ProviderConfigProperty();
+
     p5.setName(CFG_MAPPING_DB_ENABLED);
     p5.setLabel("Mapping (DB enabled)");
     p5.setType(ProviderConfigProperty.BOOLEAN_TYPE);
