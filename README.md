@@ -55,6 +55,21 @@ This module provides a protocol mapper that transforms a user attribute value in
 - `mapping.inline`: Mapping rules inline. Supports:
   - CSV: `A01:finance,A02:people`
   - JSON: `{ "A01": "finance", "A02": "people" }`
+- `mapping.file`: File path or URL to a JSON mapping document.
+- `mapping.db.enabled`: Enable mapping lookup from a SQL database.
+- `mapping.db.jdbc.url`: JDBC URL for the mapping database.
+- `mapping.db.username`: Database username.
+- `mapping.db.password`: Database password.
+- `mapping.db.query`: SQL query returning key/value columns for mapping.
+- `mapping.api.enabled`: Enable mapping lookup from an HTTP API.
+- `mapping.api.url`: API URL that returns JSON mapping.
+- `mapping.api.auth.type`: API auth type (`none|bearer|basic|apikey`).
+- `mapping.api.auth.token`: API token (bearer/api-key).
+- `mapping.api.auth.user`: API basic auth username.
+- `mapping.api.auth.password`: API basic auth password.
+- `mapping.api.timeout.ms`: API timeout in milliseconds.
+- `mapping.cache.enabled`: Cache merged mappings in memory.
+- `mapping.cache.ttl.seconds`: Cache TTL in seconds.
 - `mapping.client.autoKey`: If `true`, reads mapping from client attribute `map.<source.user.attribute>`.
 - `mapping.client.key`: Manual/legacy client attribute key (used if auto-key is disabled or missing).
 - `fallback.original`: If `true`, uses the original value when no mapping exists.
@@ -62,9 +77,15 @@ This module provides a protocol mapper that transforms a user attribute value in
 
 #### Mapping resolution order
 
+Mappings are merged from lowest to highest priority. When the same key appears multiple times, higher-priority sources override lower ones.
+
+Priority (highest → lowest):
 1. `mapping.inline`
-2. Client attribute `map.<source.user.attribute>` (if enabled)
-3. Client attribute `mapping.client.key`
+2. `mapping.api.*`
+3. `mapping.db.*`
+4. `mapping.file`
+5. Client attribute `map.<source.user.attribute>` (if enabled)
+6. Client attribute `mapping.client.key`
 
 ## Keycloak Terraform Config (keycloak-config)
 
