@@ -1,7 +1,16 @@
+module "realm_userinfosync" {
+  source = "../modules/realms-userinfosync"
+
+  userinfosync_defaults  = var.userinfosync_defaults
+  userinfosync_overrides = var.userinfosync_overrides
+  extra_realm_attributes = var.extra_realm_attributes
+}
+
 resource "keycloak_realm" "bootstrap" {
   realm        = var.bootstrap_realm_name
   display_name = var.bootstrap_realm_display_name
   enabled      = true
+  attributes   = module.realm_userinfosync.attributes
 }
 
 resource "keycloak_openid_client" "terraform" {

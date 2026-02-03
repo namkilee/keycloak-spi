@@ -6,14 +6,23 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.utils.KeycloakModelUtils;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.MissingNode;
+
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 public class UserInfoSyncRunner {
+  private static final ObjectMapper OM = new ObjectMapper();
+
   private final KeycloakSessionFactory factory;
   private final UserInfoSyncRealmConfig cfg;
 
@@ -49,12 +58,12 @@ public class UserInfoSyncRunner {
             final String userId = u.getUsername();
             futures.add(pool.submit(() -> {
               try {
-                KnoxUserInfo info = knox.fetchByUserId(
+                String rawJson = knox.fetchRawJsonByUserId(
                     userId,
                     cfg.retryMaxAttempts,
                     cfg.retryBaseBackoffMs
                 );
-                return LookupResult.ok(userId, info);
+                return LookupResult.ok(userId, rawJson);
               } catch (Exception e) {
                 return LookupResult.fail(userId, e);
               }
@@ -80,16 +89,48 @@ public class UserInfoSyncRunner {
               continue;
             }
 
-            String currentDeptId = user.getFirstAttribute(cfg.deptAttrKey);
-            String newDeptId = r.info.departmentCode();
-
-            if (Objects.equals(currentDeptId, newDeptId)) {
+            JsonNode root;
+            try {
+              root = OM.readTree(r.rawJson);
+            } catch (Exception e) {
+              failed++;
               continue;
             }
 
-            user.setSingleAttribute(cfg.deptAttrKey, newDeptId);
-            user.setNotBefore(nowEpoch);
-            session.sessions().removeUserSessions(realm, user);
+            Set<String> updatedKeys = new HashSet<>();
+            boolean shouldInvalidate = false;
+
+            for (Map.Entry<String, String> entry : cfg.mapping.entrySet()) {
+              String attrKey = entry.getKey();
+              if (!user.getAttributes().containsKey(attrKey)) {
+                continue;
+              }
+
+              String newValue = extractString(root, entry.getValue());
+              if (newValue == null) {
+                continue;
+              }
+
+              String currentValue = user.getFirstAttribute(attrKey);
+              if (Objects.equals(currentValue, newValue)) {
+                continue;
+              }
+
+              user.setSingleAttribute(attrKey, newValue);
+              updatedKeys.add(attrKey);
+              if (cfg.invalidateOnKeys.contains(attrKey)) {
+                shouldInvalidate = true;
+              }
+            }
+
+            if (updatedKeys.isEmpty()) {
+              continue;
+            }
+
+            if (shouldInvalidate) {
+              user.setNotBefore(nowEpoch);
+              session.sessions().removeUserSessions(realm, user);
+            }
 
             changed++;
           }
@@ -117,22 +158,55 @@ public class UserInfoSyncRunner {
   private static final class LookupResult {
     final boolean success;
     final String userId;
-    final KnoxUserInfo info;
+    final String rawJson;
     final Exception error;
 
-    private LookupResult(boolean success, String userId, KnoxUserInfo info, Exception error) {
+    private LookupResult(boolean success, String userId, String rawJson, Exception error) {
       this.success = success;
       this.userId = userId;
-      this.info = info;
+      this.rawJson = rawJson;
       this.error = error;
     }
 
-    static LookupResult ok(String userId, KnoxUserInfo info) {
-      return new LookupResult(true, userId, info, null);
+    static LookupResult ok(String userId, String rawJson) {
+      return new LookupResult(true, userId, rawJson, null);
     }
 
     static LookupResult fail(String userId, Exception e) {
       return new LookupResult(false, userId, null, e);
     }
+  }
+
+  private static String extractString(JsonNode root, String dotPath) {
+    if (root == null || dotPath == null || dotPath.isBlank()) {
+      return null;
+    }
+    JsonNode node = root;
+    for (String part : dotPath.split("\\.")) {
+      if (node == null || node instanceof MissingNode) {
+        return null;
+      }
+      if (node.isArray()) {
+        if (node.isEmpty()) {
+          return null;
+        }
+        node = node.get(0);
+      }
+      node = node.path(part);
+    }
+    if (node == null || node instanceof MissingNode) {
+      return null;
+    }
+    if (node.isArray()) {
+      if (node.isEmpty()) {
+        return null;
+      }
+      node = node.get(0);
+    }
+    String value = node.asText(null);
+    if (value == null || value.isBlank()) {
+      return null;
+    }
+    return value;
   }
 }

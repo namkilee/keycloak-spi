@@ -7,6 +7,11 @@ It is structured as a small environment layout (dev/stg/prd) that uses a MinIO (
 
 - `modules/scopes`: Creates the `terms` and `claims` client scopes, plus the `value-transform-protocol-mapper`.
 - `dev|stg|prd`: Environment-specific Terraform roots with MinIO backend configuration, client/IdP configuration applied to an existing realm, required action enablement, and default scope attachment. These envs read the bootstrap state to discover the realm id.
+- `bootstrap`: Creates the Keycloak realm and service account client; realm attributes (including UserInfoSync) are managed here.
+
+## UserInfoSync realm attributes
+
+UserInfoSync attributes are managed via the `modules/realms-userinfosync` module in `bootstrap` so the realm settings live with realm creation. Configure defaults (and optional overrides) with `userinfosync_defaults` / `userinfosync_overrides` in `bootstrap/terraform.tfvars`. The `userinfosync.mappingJson` value is stored as a JSON string (use `jsonencode(...)`), and `userinfosync.invalidateOnKeys` is a comma-separated string. Keep Knox credentials in environment or secret management; do not store them in Terraform variables.
 
 ## Client scope attributes
 

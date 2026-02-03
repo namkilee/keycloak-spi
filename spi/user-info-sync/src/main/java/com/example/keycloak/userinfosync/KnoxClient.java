@@ -28,7 +28,7 @@ public class KnoxClient {
         .build();
   }
 
-  public KnoxUserInfo fetchByUserId(String userId, int maxAttempts, int baseBackoffMs) {
+  public String fetchRawJsonByUserId(String userId, int maxAttempts, int baseBackoffMs) {
     int attempt = 0;
     while (true) {
       attempt++;
@@ -43,7 +43,7 @@ public class KnoxClient {
     }
   }
 
-  private KnoxUserInfo doRequest(String userId) {
+  private String doRequest(String userId) {
     String url = baseUrl + "?user_id=" + URLEncoder.encode(userId, StandardCharsets.UTF_8);
     String bodyJson = "{\"resultType\":\"" + resultType + "\"}";
 
@@ -61,7 +61,7 @@ public class KnoxClient {
       int code = resp.statusCode();
 
       if (code == 200) {
-        return KnoxUserInfo.fromJson(resp.body());
+        return resp.body();
       }
 
       if (code == 429 || (code >= 500 && code <= 599)) {
