@@ -107,3 +107,34 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+############################################
+# Certificates / Keys (PEM, TLS, SSH, JWT)
+############################################
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.truststore
+
+# SSH keys
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.ssh
+
+# JWT / OAuth keys
+*.jwt
+*.jwk
+*.jwks
+
+# CA / trust
+ca-bundle.*
+ca-cert.*
+truststore.*
