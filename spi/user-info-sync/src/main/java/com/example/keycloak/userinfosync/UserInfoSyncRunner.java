@@ -20,6 +20,8 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class UserInfoSyncRunner {
   private static final ObjectMapper OM = new ObjectMapper();
@@ -35,36 +37,38 @@ public class UserInfoSyncRunner {
   public void syncRealm(String realmId) {
     KnoxClient knox = new KnoxClient(cfg);
 
-    int first = 0;
-    int max = cfg.batchSize;
+    // ✅ pool은 페이지마다 만들지 말고 Runner 생명주기 동안 재사용
+    ExecutorService pool = Executors.newFixedThreadPool(cfg.maxConcurrency);
 
-    while (true) {
-      final int pageFirst = first;
+    try {
+      int first = 0;
+      int max = cfg.batchSize;
 
-      boolean hasMore = KeycloakModelUtils.runJobInTransaction(factory, (KeycloakSession session) -> {
-        RealmModel realm = session.realms().getRealm(realmId);
-        if (realm == null) {
-          Log.warn("realm not found: " + realmId);
-          return false;
-        }
+      while (true) {
+        final int pageFirst = first;
+        AtomicBoolean hasMore = new AtomicBoolean(true);
 
-        // ✅ 전체 유저 페이징 조회(호환성 높음)
-        List<UserModel> users = session.users()
-            .searchForUserStream(realm, Collections.emptyMap(), pageFirst, max)
-            .toList();
+        KeycloakModelUtils.runJobInTransaction(factory, (KeycloakSession session) -> {
+          RealmModel realm = session.realms().getRealm(realmId);
+          if (realm == null) {
+            Log.warn("realm not found: " + realmId);
+            hasMore.set(false);
+            return;
+          }
 
-        if (users.isEmpty()) {
-          return false;
-        }
+          List<UserModel> users = session.users()
+              .searchForUserStream(realm, Collections.emptyMap(), pageFirst, max)
+              .toList();
 
-        ExecutorService pool = Executors.newFixedThreadPool(cfg.maxConcurrency);
-        try {
+          if (users.isEmpty()) {
+            hasMore.set(false);
+            return;
+          }
+
+          // Knox 호출 병렬 수행
           List<Future<LookupResult>> futures = new ArrayList<>(users.size());
-
           for (UserModel u : users) {
-            // Knox API의 query user_id=<username> 조건을 그대로 사용
-            final String userId = u.getUsername();
-
+            final String userId = u.getUsername(); // Knox query user_id=<username>
             futures.add(pool.submit(() -> {
               try {
                 String rawJson = knox.fetchRawJsonByUserId(
@@ -81,8 +85,8 @@ public class UserInfoSyncRunner {
 
           int nowEpoch = (int) (System.currentTimeMillis() / 1000L);
           int changedUsers = 0;
-          int failedUsers = 0;
           int invalidatedUsers = 0;
+          int failedUsers = 0;
 
           for (int i = 0; i < users.size(); i++) {
             UserModel user = users.get(i);
@@ -114,7 +118,7 @@ public class UserInfoSyncRunner {
             for (Map.Entry<String, String> entry : cfg.mapping.entrySet()) {
               String attrKey = entry.getKey();
 
-              // ✅ 새 키 생성 금지: 기존 key 없으면 스킵
+              // ✅ 새 키 생성 금지: 기존 attribute key가 없으면 skip
               if (!user.getAttributes().containsKey(attrKey)) {
                 continue;
               }
@@ -144,10 +148,10 @@ public class UserInfoSyncRunner {
             changedUsers++;
 
             if (shouldInvalidate) {
-              // ✅ 유저 단위 notBefore 설정 (의도 명확, 호환성 높음)
+              // ✅ 유저 notBefore 설정 (provider API)
               session.users().setNotBeforeForUser(realm, user, nowEpoch);
 
-              // ✅ 즉시 로그아웃: 유저 세션 제거
+              // ✅ 즉시 로그아웃
               session.sessions().removeUserSessions(realm, user);
 
               invalidatedUsers++;
@@ -160,18 +164,20 @@ public class UserInfoSyncRunner {
               + " changedUsers=" + changedUsers
               + " invalidatedUsers=" + invalidatedUsers
               + " failedUsers=" + failedUsers);
+        });
 
-        } finally {
-          pool.shutdownNow();
+        if (!hasMore.get()) {
+          break;
         }
-
-        return true;
-      });
-
-      if (!hasMore) {
-        break;
+        first += max;
       }
-      first += max;
+    } finally {
+      pool.shutdownNow();
+      try {
+        pool.awaitTermination(5, TimeUnit.SECONDS);
+      } catch (InterruptedException ignored) {
+        Thread.currentThread().interrupt();
+      }
     }
   }
 
@@ -197,13 +203,6 @@ public class UserInfoSyncRunner {
     }
   }
 
-  /**
-   * Extract string value from a JsonNode using dot-path.
-   *
-   * Behavior:
-   * - If an intermediate node is an array, uses the first element.
-   * - Returns null for missing/blank values.
-   */
   private static String extractString(JsonNode root, String dotPath) {
     if (root == null || dotPath == null || dotPath.isBlank()) {
       return null;
@@ -214,25 +213,18 @@ public class UserInfoSyncRunner {
       if (node == null || node instanceof MissingNode || node.isMissingNode() || node.isNull()) {
         return null;
       }
-
       if (node.isArray()) {
-        if (node.isEmpty()) {
-          return null;
-        }
+        if (node.isEmpty()) return null;
         node = node.get(0);
       }
-
       node = node.path(part);
     }
 
     if (node == null || node instanceof MissingNode || node.isMissingNode() || node.isNull()) {
       return null;
     }
-
     if (node.isArray()) {
-      if (node.isEmpty()) {
-        return null;
-      }
+      if (node.isEmpty()) return null;
       node = node.get(0);
     }
 
