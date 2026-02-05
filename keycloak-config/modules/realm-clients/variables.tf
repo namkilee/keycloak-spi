@@ -89,14 +89,14 @@ variable "clients" {
     }))
   }))
 
-  # default_scopes 안의 값이 scopes map의 key로 존재하는지 검증
+  # default_scopes 안의 값이 scopes 또는 shared_scopes의 key로 존재하는지 검증
   validation {
     condition = alltrue(flatten([
       for client_key, c in var.clients : [
-        for s in c.default_scopes : contains(keys(c.scopes), s)
+        for s in c.default_scopes : contains(keys(c.scopes), s) || contains(keys(var.shared_scopes), s)
       ]
     ]))
-    error_message = "clients[*].default_scopes must contain only scope keys that exist in clients[*].scopes. Check each client's default_scopes vs scopes map keys."
+    error_message = "clients[*].default_scopes must contain only scope keys that exist in clients[*].scopes or shared_scopes."
   }
 
   # mappers[*].scope 가 scopes map의 key로 존재하는지 검증
@@ -108,6 +108,30 @@ variable "clients" {
     ]))
     error_message = "clients[*].mappers[*].scope must reference an existing scope key in clients[*].scopes."
   }
+
+}
+
+variable "shared_scopes" {
+  type = map(object({
+    description = optional(string, "")
+
+    mappers = optional(list(object({
+      name            = string
+      protocol_mapper = string
+      config          = map(string)
+    })), [])
+
+    tc_sets = optional(map(object({
+      required = bool
+      version  = string
+      url      = optional(string)
+      template = optional(string)
+      key      = optional(string)
+    })))
+  }))
+
+  default     = {}
+  description = "Shared client scopes and their protocol mappers."
 }
 
 variable "saml_idp_alias" {

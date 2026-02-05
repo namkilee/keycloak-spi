@@ -3,6 +3,7 @@ module "client_scopes" {
 
   realm_id = var.realm_id
   clients  = var.clients
+  shared_scopes = var.shared_scopes
 
   keycloak_url            = var.keycloak_url
   keycloak_auth_realm     = var.keycloak_auth_realm
@@ -66,7 +67,9 @@ resource "keycloak_openid_client_default_scopes" "app" {
   client_id = each.value.id
   default_scopes = [
     for scope_key in var.clients[each.key].default_scopes :
-    module.client_scopes.scope_names[each.key][scope_key]
+    contains(keys(var.shared_scopes), scope_key)
+    ? module.client_scopes.shared_scope_names[scope_key]
+    : module.client_scopes.scope_names[each.key][scope_key]
   ]
   depends_on = [module.client_scopes]
 }

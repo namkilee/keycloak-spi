@@ -17,3 +17,17 @@ output "scope_names" {
     }
   }
 }
+
+output "shared_scope_ids" {
+  value = {
+    for scope_key, scope in var.shared_scopes :
+    scope_key => keycloak_openid_client_scope.shared_scopes[scope_key].id
+  }
+}
+
+output "shared_scope_names" {
+  value = {
+    for scope_key, scope in var.shared_scopes :
+    scope_key => keycloak_openid_client_scope.shared_scopes[scope_key].name
+  }
+}
