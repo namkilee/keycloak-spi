@@ -18,6 +18,11 @@ variable "keycloak_client_secret" {
   sensitive = true
 }
 
+variable "approval_portal_url" {
+  type        = string
+  description = "Approval portal base URL used in Keycloak approval pending UI"
+}
+
 variable "keycloak_container_name" {
   type = string
 }
