@@ -3,25 +3,30 @@ module "client_scopes" {
 
   realm_id = var.realm_id
   clients  = var.clients
-  keycloak_url           = var.keycloak_url
-  keycloak_auth_realm    = var.keycloak_auth_realm
-  keycloak_client_id     = var.keycloak_client_id
-  keycloak_client_secret = var.keycloak_client_secret
-  kcadm_exec_mode        = var.kcadm_exec_mode
-  keycloak_kcadm_path    = var.keycloak_kcadm_path
+
+  keycloak_url            = var.keycloak_url
+  keycloak_auth_realm     = var.keycloak_auth_realm
+  keycloak_client_id      = var.keycloak_client_id
+  keycloak_client_secret  = var.keycloak_client_secret
+  kcadm_exec_mode         = var.kcadm_exec_mode
+  keycloak_kcadm_path     = var.keycloak_kcadm_path
   keycloak_container_name = var.keycloak_container_name
-  keycloak_namespace     = var.keycloak_namespace
-  keycloak_pod_selector  = var.keycloak_pod_selector
+  keycloak_namespace      = var.keycloak_namespace
+  keycloak_pod_selector   = var.keycloak_pod_selector
 }
 
 resource "keycloak_required_action" "terms_required" {
-  realm_id        = var.realm_id
-  alias           = "terms-required-action"
-  name            = "Terms & Conditions (multi)"
-  enabled         = true
-  default_action  = false
+  realm_id       = var.realm_id
+  alias          = "terms-required-action"
+  name           = "Terms & Conditions (multi)"
+  enabled        = true
+  default_action = false
 }
 
+# =========================
+# 서비스 OIDC clients
+# - client attributes: auto_approve + approval_portal_url
+# =========================
 resource "keycloak_openid_client" "app" {
   for_each = var.clients
 
@@ -38,6 +43,20 @@ resource "keycloak_openid_client" "app" {
   valid_redirect_uris          = each.value.redirect_uris
   web_origins                  = each.value.web_origins
   login_theme                  = each.value.login_theme
+
+  attributes = {
+    auto_approve        = tostring(try(each.value.auto_approve, false)) # "true"/"false"
+    approval_portal_url = var.approval_portal_url
+  }
+}
+
+# 서비스 client마다 approved client role 자동 생성
+resource "keycloak_role" "approved" {
+  for_each = keycloak_openid_client.app
+
+  realm_id  = var.realm_id
+  client_id = each.value.id
+  name      = "approved"
 }
 
 resource "keycloak_openid_client_default_scopes" "app" {
@@ -52,6 +71,81 @@ resource "keycloak_openid_client_default_scopes" "app" {
   depends_on = [module.client_scopes]
 }
 
+# =========================
+# 승인 포털 OIDC client (service account ON)
+# =========================
+resource "keycloak_openid_client" "approval_portal" {
+  realm_id  = var.realm_id
+  client_id = "approval-portal"
+  name      = "Approval Portal"
+  enabled   = true
+
+  access_type              = "CONFIDENTIAL"
+  service_accounts_enabled = true
+
+  standard_flow_enabled        = true
+  direct_access_grants_enabled = false
+}
+
+# 포털 approver 역할(사람 권한) 자동 생성: approver_<client_id>
+locals {
+  portal_approver_role_names = {
+    for k, c in var.clients :
+    k => "approver_${replace(c.client_id, "-", "_")}"
+  }
+}
+
+resource "keycloak_role" "portal_approver_roles" {
+  for_each = local.portal_approver_role_names
+
+  realm_id  = var.realm_id
+  client_id = keycloak_openid_client.approval_portal.id
+  name      = each.value
+}
+
+# 포털 service account(시스템 권한)에 realm-management 최소 권한 부여
+data "keycloak_openid_client" "realm_management" {
+  realm_id  = var.realm_id
+  client_id = "realm-management"
+}
+
+locals {
+  approval_portal_realm_mgmt_roles = toset([
+    "view-users",
+    "query-users",
+    "manage-users",
+    "view-clients",
+  ])
+}
+
+resource "keycloak_openid_client_service_account_role" "approval_portal_sa_roles" {
+  for_each               = local.approval_portal_realm_mgmt_roles
+  realm_id               = var.realm_id
+  client_id              = data.keycloak_openid_client.realm_management.id
+  service_account_user_id = keycloak_openid_client.approval_portal.service_account_user_id
+  role                   = each.value
+}
+
+# =========================
+# Post Broker Login Flow: 승인 게이트 실행
+# (Browser flow는 나중)
+# =========================
+resource "keycloak_authentication_flow" "post_broker_approval" {
+  realm_id = var.realm_id
+  alias    = "post-broker-approval"
+}
+
+resource "keycloak_authentication_execution" "post_broker_approval_gate" {
+  realm_id          = var.realm_id
+  parent_flow_alias = keycloak_authentication_flow.post_broker_approval.alias
+
+  authenticator = "approval-gate-authenticator" # SPI AuthenticatorFactory.getId()
+  requirement   = "REQUIRED"
+}
+
+# =========================
+# SAML IdP + Post Broker Login Flow 연결
+# =========================
 resource "keycloak_saml_identity_provider" "saml_idp" {
   realm                      = var.realm_id
   alias                      = var.saml_idp_alias
@@ -67,9 +161,17 @@ resource "keycloak_saml_identity_provider" "saml_idp" {
   validate_signature         = true
   post_binding_response      = true
   want_assertions_signed     = true
+
+  # SAML 로그인 후 승인 게이트 실행
+  post_broker_login_flow_alias = keycloak_authentication_flow.post_broker_approval.alias
+
   extra_config = {
     idpEntityId = var.saml_idp_entity_id
   }
+
+  depends_on = [
+    keycloak_authentication_execution.post_broker_approval_gate
+  ]
 }
 
 resource "keycloak_attribute_importer_identity_provider_mapper" "saml_idp" {
@@ -178,6 +280,9 @@ resource "keycloak_hardcoded_role_identity_provider_mapper" "saml_idp" {
   )
 }
 
+# =========================
+# User Profile (기존 유지, 오타 수정 포함)
+# =========================
 locals {
   user_profile = jsondecode(file("${path.module}/json/user-profile.json"))
 }
@@ -188,10 +293,10 @@ resource "keycloak_realm_user_profile" "userprofile" {
   dynamic "attribute" {
     for_each = try(local.user_profile.attributes, [])
     content {
-      name = attribute.value.name
+      name         = attribute.value.name
       display_name = try(attribute.value.displayName, null)
       multi_valued = attribute.value.multi_valued
-      required_for_roles = try(attribute.value.required.roles, [])
+      required_for_roles  = try(attribute.value.required.roles, [])
       required_for_scopes = try(attribute.value.required.scopes, [])
       annotations = {
         for k, v in try(attribute.value.annotations, {}) :
@@ -201,7 +306,7 @@ resource "keycloak_realm_user_profile" "userprofile" {
       dynamic "permissions" {
         for_each = try([attribute.value.permissions], [])
         content {
-          veiw = try(permissions.value.view, [])
+          view = try(permissions.value.view, [])
           edit = try(permissions.value.edit, [])
         }
       }
@@ -209,7 +314,7 @@ resource "keycloak_realm_user_profile" "userprofile" {
       dynamic "validator" {
         for_each = try(attribute.value.validations, [])
         content {
-          name = validator.key
+          name   = validator.key
           config = try(validator.value, {})
         }
       }
@@ -219,7 +324,7 @@ resource "keycloak_realm_user_profile" "userprofile" {
   dynamic "group" {
     for_each = try(local.user_profile.groups, [])
     content {
-      name = group.value.name
+      name           = group.value.name
       display_header = group.value.displayDescription
       annotations = {
         for k, v in try(group.value.annotations, {}) :
@@ -228,4 +333,3 @@ resource "keycloak_realm_user_profile" "userprofile" {
     }
   }
 }
-

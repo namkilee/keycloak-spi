@@ -11,11 +11,14 @@ module "realm_clients" {
   realm_id = data.terraform_remote_state.bootstrap.outputs.bootstrap_realm_id
 
   clients = var.clients
-  keycloak_url           = var.keycloak_url
-  keycloak_auth_realm    = local.resolved_auth_realm
-  keycloak_client_id     = coalesce(var.keycloak_client_id, data.terraform_remote_state.bootstrap.outputs.terraform_client_id)
-  keycloak_client_secret = coalesce(var.keycloak_client_secret, data.terraform_remote_state.bootstrap.outputs.terraform_client_secret)
-  kcadm_exec_mode        = "docker"
+
+  approval_portal_url = var.approval_portal_url
+
+  keycloak_url            = var.keycloak_url
+  keycloak_auth_realm     = local.resolved_auth_realm
+  keycloak_client_id      = coalesce(var.keycloak_client_id, data.terraform_remote_state.bootstrap.outputs.terraform_client_id)
+  keycloak_client_secret  = coalesce(var.keycloak_client_secret, data.terraform_remote_state.bootstrap.outputs.terraform_client_secret)
+  kcadm_exec_mode         = "docker"
   keycloak_container_name = var.keycloak_container_name
 
   saml_idp_alias           = var.saml_idp_alias

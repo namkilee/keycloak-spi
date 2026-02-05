@@ -43,6 +43,12 @@ variable "keycloak_pod_selector" {
   default = null
 }
 
+# 추가: 승인 포털 URL (Required Action 화면에서 안내 링크로 사용)
+variable "approval_portal_url" {
+  type        = string
+  description = "Approval portal base URL used in Keycloak approval pending UI"
+}
+
 variable "clients" {
   type = map(object({
     client_id     = string
@@ -53,10 +59,13 @@ variable "clients" {
     login_theme   = optional(string, "AAP")
 
     # client settings
-    access_type   = optional(string, "PUBLIC")
-    standard_flow_enabled = optional(bool, true)
+    access_type                  = optional(string, "PUBLIC")
+    standard_flow_enabled        = optional(bool, true)
     direct_access_grants_enabled = optional(bool, false)
-    pkce_code_challenge_method = optional(string, "S256")
+    pkce_code_challenge_method   = optional(string, "S256")
+
+    # 추가: 서비스별 자동 승인 정책
+    auto_approve = optional(bool, false)
 
     scopes = map(object({
       description = optional(string, "")
@@ -142,35 +151,35 @@ variable "saml_principal_attribute" {
 }
 
 variable "saml_name_id_policy_format" {
-  type = string
+  type    = string
   default = "Unspecified"
 
   validation {
     condition = contains([
       "Email", "Kerberos", "X.509 Subject Name", "Unspecified",
       "Transient", "Windows Domain Qualified Name", "Persistent"
-    ], val.saml_name_id_policy_format)
+    ], var.saml_name_id_policy_format)
     error_message = "Invalid saml_name_id_policy_format."
   }
 }
 
 variable "saml_idp_mappers" {
   type = list(object({
-    name            = string
-    type            = string
-    attribute_name  = optional(string)
+    name                   = string
+    type                   = string
+    attribute_name         = optional(string)
     attribute_friendly_name = optional(string)
-    claim_name      = optional(string)
-    claim_value     = optional(string)
-    user_attribute  = optional(string)
-    attribute_value = optional(string)
-    role            = optional(string)
-    group           = optional(string)
-    user_session    = optional(bool)
+    claim_name             = optional(string)
+    claim_value            = optional(string)
+    user_attribute         = optional(string)
+    attribute_value        = optional(string)
+    role                   = optional(string)
+    group                  = optional(string)
+    user_session           = optional(bool)
     identity_provider_mapper = optional(string)
-    config          = optional(map(string))
-    extra_config    = optional(map(string))
-    sync_mode       = optional(string, "INHERIT")
+    config                 = optional(map(string))
+    extra_config           = optional(map(string))
+    sync_mode              = optional(string, "INHERIT")
   }))
   default = []
 
