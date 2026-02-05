@@ -13,6 +13,25 @@ bootstrap_state_access_key = "minio"
 bootstrap_state_secret_key = "minio123"
 approval_portal_url = "https://approval.dev.example.com"
 
+shared_scopes = {
+  common-claims = {
+    description = "Shared claims scope"
+    mappers = [
+      {
+        name            = "dept-transform-shared"
+        protocol_mapper = "value-transform-protocol-mapper"
+        config = {
+          "source.user.attribute"     = "dept_code"
+          "target.claim.name"         = "dept"
+          "mapping.file"              = "mappings/dept_code.json"
+          "mapping.cache.enabled"     = "true"
+          "mapping.cache.ttl.seconds" = "300"
+        }
+      }
+    ]
+  }
+}
+
 clients = {
   app = {
     client_id     = "app"
@@ -58,7 +77,7 @@ clients = {
       }
     }
 
-    default_scopes = ["terms", "claims"]
+    default_scopes = ["terms", "claims", "common-claims"]
 
     mappers = [
       {

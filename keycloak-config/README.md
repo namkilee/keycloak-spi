@@ -6,6 +6,7 @@ It is structured as a small environment layout (dev/stg/prd) that uses a MinIO (
 ## Structure
 
 - `modules/scopes`: Creates the `terms` and `claims` client scopes, plus the `value-transform-protocol-mapper`.
+- `modules/scopes` also supports shared client scopes that can be attached to multiple clients.
 - `dev|stg|prd`: Environment-specific Terraform roots with MinIO backend configuration, client/IdP configuration applied to an existing realm, required action enablement, and default scope attachment. These envs read the bootstrap state to discover the realm id.
 - `bootstrap`: Creates the Keycloak realm and service account client; realm attributes (including UserInfoSync) are managed here.
 
@@ -21,6 +22,12 @@ provider, so the `terms` scope attributes are applied via `kcadm.sh` with a
 `clients[*].scopes.terms.terms_attributes`, and they are written to
 `attributes.tc.*` on the client scope without adding protocol mappers to tokens.
 Other token-mapped values should continue to use protocol mappers.
+
+## Shared client scopes
+
+To reuse protocol mappers across clients, define shared scopes in `shared_scopes` and attach them
+per client via `clients[*].shared_scopes` or by listing the shared scope key in `clients[*].default_scopes`.
+Shared scopes are created once (name = scope key), and are added to each client alongside its `default_scopes`.
 
 The provisioner shells out to the Keycloak container:
 

@@ -11,6 +11,7 @@ module "realm_clients" {
   realm_id = data.terraform_remote_state.bootstrap.outputs.bootstrap_realm_id
 
   clients = var.clients
+  shared_scopes = var.shared_scopes
 
   approval_portal_url = var.approval_portal_url
 

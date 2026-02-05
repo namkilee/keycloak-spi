@@ -43,6 +43,7 @@ module "realm_clients" {
   realm_id = data.terraform_remote_state.bootstrap.outputs.bootstrap_realm_id
 
   clients = var.clients
+  shared_scopes = var.shared_scopes
   keycloak_url           = var.keycloak_url
   keycloak_auth_realm    = local.resolved_auth_realm
   keycloak_client_id     = coalesce(var.keycloak_client_id, data.terraform_remote_state.bootstrap.outputs.terraform_client_id)
