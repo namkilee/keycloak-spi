@@ -13,6 +13,7 @@ bootstrap_state_region     = "us-east-1"
 bootstrap_state_endpoint   = "https://minio.example.com"
 bootstrap_state_access_key = "minio"
 bootstrap_state_secret_key = "minio123"
+approval_portal_url        = "https://approval.prd.example.com"
 
 shared_scopes = {
   common-claims = {
