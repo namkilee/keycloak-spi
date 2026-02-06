@@ -14,13 +14,13 @@ It is structured as a small environment layout (dev/stg/prd) that uses a MinIO (
 
 UserInfoSync attributes are managed via the `modules/realms-userinfosync` module in `bootstrap` so the realm settings live with realm creation. Configure defaults (and optional overrides) with `userinfosync_defaults` / `userinfosync_overrides` in `bootstrap/terraform.tfvars`. The `userinfosync.mappingJson` value is stored as a JSON string (use `jsonencode(...)`), and `userinfosync.invalidateOnKeys` is a comma-separated string. Keep Knox credentials in environment or secret management; do not store them in Terraform variables.
 
-## Client scope attributes
+## Client scope attributes (Terms)
 
 Keycloak does not expose a separate “client scope attribute” object in the
 provider, so the `terms` scope attributes are applied via `kcadm.sh` with a
-`null_resource` provisioner. Supply the attributes under
-`clients[*].scopes.terms.terms_attributes`, and they are written to
-`attributes.tc.*` on the client scope without adding protocol mappers to tokens.
+`null_resource` provisioner. Supply the terms configuration under
+`clients[*].scopes.terms.tc_sets`, and the provisioner writes a single
+`attributes.tc.terms` JSON array on the client scope (no token mappers are added).
 Other token-mapped values should continue to use protocol mappers.
 
 ## Shared client scopes

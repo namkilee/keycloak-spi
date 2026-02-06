@@ -17,32 +17,34 @@ This repository contains a multi-module Maven project that delivers Keycloak Ser
 ### Terms & Conditions Required Action (`terms-ra`)
 
 This module provides a Required Action that forces users to accept one or more Terms & Conditions before continuing authentication.
-Terms are configured via client or client-scope attributes and rendered in a custom FreeMarker login template.
+Terms are configured via client-scope attributes and rendered in a custom FreeMarker login template.
 
-#### Configuration keys
+#### Configuration (client scopes)
 
-- `tc.required`: Comma-separated list of term IDs required for the client (e.g. `privacy,security`).
-- `tc.term.<id>.title`: Display title for a term (defaults to `<id>`).
-- `tc.term.<id>.version`: Version string (defaults to `unknown`).
-- `tc.term.<id>.url`: Optional URL for a term document.
-- `tc.term.<id>.required`: `true|false` to mark a term as required (defaults to `true`).
+Terms are defined on client scopes using a single attribute:
 
-**Attribute lookup order:**
-1. Client attributes
-2. Client scope attributes (default scopes first, then optional scopes)
+- `tc.terms`: JSON array of term objects.
+
+Each term object supports:
+
+- `key`: Term identifier (required).
+- `title`: Display title (defaults to `key`).
+- `version`: Version string (required).
+- `url`: Optional URL for the term document.
+- `required`: `true|false` to mark as required (defaults to `false` when omitted).
+
+**Scope resolution rules:**
+1. Only client scopes with `tc.terms` are considered.
+2. Scopes whose name starts with `shared-terms-` are treated as shared and loaded first.
+3. Non-shared scopes override shared scopes when keys overlap.
+4. Duplicate keys within the same layer (shared vs client-specific) cause a configuration error.
 
 #### Acceptance storage
 
-When a user accepts a term, acceptance is stored on the user as:
+When a user accepts a term, the accepted version is stored on the user as:
 
 ```
-tc.accepted.<clientId>.<termId>.version
-```
-
-An acceptance timestamp is stored at:
-
-```
-tc.accepted.<clientId>.<termId>.version.at
+tc.accepted.<clientId>.<termKey>
 ```
 
 ### Value Transform Protocol Mapper (`claim-mappers`)
@@ -83,11 +85,15 @@ Mappings are merged from lowest to highest priority. When the same key appears m
 
 Priority (highest → lowest):
 1. `mapping.inline`
-2. `mapping.api.*`
+2. `mapping.api.*` (overrides DB mappings when the same key exists)
 3. `mapping.db.*`
 4. `mapping.file`
 5. Client attribute `map.<source.user.attribute>` (if enabled)
 6. Client attribute `mapping.client.key`
+
+Cache keys are derived only from the mapper configuration values:
+`source.user.attribute`, `mapping.inline`, `mapping.file`, `mapping.db.*`, `mapping.api.*`.
+Cache policy settings (`mapping.cache.*`) and client attribute values are not part of the key.
 
 ### User Info Sync SPI (`user-info-sync`)
 
@@ -106,13 +112,14 @@ It supports multi-realm execution, realm attribute tuning, and cluster-safe once
 - `userinfosync.runAt`: Run time in `HH:mm` (default `03:00`).
 - `userinfosync.windowMinutes`: Allowed window in minutes (default `3`).
 - `userinfosync.batchSize`: Paging batch size (default `500`).
-- `userinfosync.deptAttrKey`: User attribute key for department (default `deptId`).
 - `userinfosync.resultType`: Knox result type (`basic|optional`, default `basic`).
 - `userinfosync.httpTimeoutMs`: HTTP timeout in milliseconds (default `5000`).
 - `userinfosync.maxConcurrency`: Parallel Knox calls (default `15`).
 - `userinfosync.retry.maxAttempts`: Retry attempts for retryable errors (default `3`).
 - `userinfosync.retry.baseBackoffMs`: Base backoff in milliseconds (default `250`).
 - `userinfosync.taskKeyPrefix`: Cluster task key prefix (default `userinfosync`).
+- `userinfosync.mappingJson`: JSON map of `{ userAttributeKey: knox.json.path }` (default `{"deptId":"response.employees.departmentCode"}`).
+- `userinfosync.invalidateOnKeys`: Comma-separated attribute keys that trigger session invalidation (default `deptId`).
 
 #### Sync behavior
 
@@ -127,8 +134,8 @@ Keycloak Terraform 구성은 `bootstrap`과 환경별(`dev|stg|prd`) 루트로 �
 ### 주요 개념
 
 - **terms scope 설정**
-  - **dev**: `clients[*].scopes.<scope>.tc_sets`로 여러 약관 세트를 정의할 수 있다.
-  - **stg/prd**: `clients[*].scopes.<scope>.terms_attributes`로 단일 약관 세트를 정의한다(레거시 형식).
+  - 모든 환경에서 `clients[*].scopes.<scope>.tc_sets`로 약관 세트를 정의한다.
+  - `tc_sets`는 client scope의 `tc.terms` JSON 배열로 동기화되며, 레거시 `terms_attributes` 방식은 더 이상 사용하지 않는다.
 - **kcadm 실행 모드**
   - **dev**는 Docker 컨테이너 내부에서 `kcadm.sh`를 실행하며 `keycloak_container_name`이 필요하다.
   - **stg/prd**는 Kubernetes에서 `kubectl exec`를 사용하므로 `keycloak_namespace`, `keycloak_pod_selector`가 필요하다.
