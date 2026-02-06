@@ -7,7 +7,7 @@ public final class TermsModels {
   private TermsModels() {}
 
   public record Term(
-      String id,
+      String key,
       String title,
       String version,
       String url,
