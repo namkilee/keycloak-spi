@@ -75,7 +75,6 @@ kc_init_exec() {
 
 # Run shell inside container/pod with isolated HOME
 kc_sh() {
-  # Usage: kc_sh "some shell script"
   "${KC_EXEC[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; $*"
 }
 
@@ -134,7 +133,6 @@ EOF
     fi
   "
 
-  # Point kcadm to truststore (stored under isolated HOME)
   kc_kcadm config truststore --trustpass "${KCADM_TRUSTSTORE_PASS}" "${KCADM_TRUSTSTORE_FILE}"
 
 elif [[ "${KEYCLOAK_TLS_MODE}" == "off" ]]; then
@@ -184,22 +182,31 @@ def s(x):
         return "true" if x else "false"
     return str(x)
 
-# 1) replace면 해당 scope prefix만 삭제 (tc.<scope>.*)
+# replace면 기존 prefix(tc.<scope>.*) 삭제 + 새 포맷(tc.terms)도 삭제
 if mode == "replace":
     attrs = {k: v for k, v in attrs.items() if not k.startswith(prefix)}
+    attrs.pop("tc.terms", None)
 
-# 2) tc_sets를 prefix 기반으로 flatten
-for set_key, cfg in (tc_sets or {}).items():
+# tc_sets(termKey -> cfg)를 terms 배열로 변환하여 tc.terms 하나로 저장
+terms = []
+for term_key, cfg in (tc_sets or {}).items():
     if not isinstance(cfg, dict):
         continue
 
-    attrs[f"{prefix}{set_key}.required"] = s(cfg.get("required", False))
+    title = cfg.get("title") or term_key
+    required = bool(cfg.get("required", False))
+    version = cfg.get("version") or "unknown"
+    url = cfg.get("url") or ""
 
-    for field in ("version", "url", "template", "key"):
-        v = cfg.get(field)
-        if v is None or v == "":
-            continue
-        attrs[f"{prefix}{set_key}.{field}"] = s(v)
+    terms.append({
+        "key": str(term_key),
+        "title": str(title),
+        "version": str(version),
+        "url": str(url) if url else "",
+        "required": required,
+    })
+
+attrs["tc.terms"] = json.dumps(terms, ensure_ascii=False)
 
 current["attributes"] = attrs
 print(json.dumps(current))
@@ -208,17 +215,13 @@ PY
 
 [[ -n "${UPDATED_JSON}" ]] || { echo "ERROR: UPDATED_JSON is empty" >&2; exit 1; }
 
-# Write updated JSON into container/pod (stdin requires -i)
 printf '%s' "${UPDATED_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
 
-# (Optional) sanity check: file size inside runtime (helps debugging)
 kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file is empty: ${KC_UPDATED_JSON_PATH}' >&2; exit 1; }"
 
-# =========================
-# Update client-scope using the in-runtime file
-# =========================
 kc_kcadm update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" -f "${KC_UPDATED_JSON_PATH}"
 
-echo "Synced attributes under prefix ${PREFIX} (mode=${SYNC_MODE})"
+echo "Synced terms to attribute tc.terms (mode=${SYNC_MODE})"
+echo "Legacy prefix cleanup applied: ${PREFIX} (mode=replace only)"
 echo "KCADM_HOME_DIR (isolated): ${KCADM_HOME_DIR}"
 echo "Updated JSON path: ${KC_UPDATED_JSON_PATH} (inside ${KCADM_EXEC_MODE} runtime)"
