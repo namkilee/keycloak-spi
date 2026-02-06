@@ -10,12 +10,12 @@ import org.keycloak.models.AuthenticationSessionModel;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.UserModel;
 
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class TermsRequiredActionProvider implements RequiredActionProvider {
 
-  private static final String FORM_PARAM_ACCEPTED = "accepted";
+  private static final String FORM_PARAM_ACCEPTED = "accepted"; // checkbox name="accepted" value="<termKey>"
 
   private final TermsConfigResolver resolver;
   private final TermsAcceptanceStore store;
@@ -34,8 +34,8 @@ public class TermsRequiredActionProvider implements RequiredActionProvider {
     TermsBundle bundle = resolver.resolve(client);
     List<Term> requiredTerms = bundle.terms().stream().filter(Term::required).toList();
 
-    boolean missing = requiredTerms.stream().anyMatch(t -> !store.isAccepted(user, client, t));
-    if (missing) {
+    boolean missingRequired = requiredTerms.stream().anyMatch(t -> !store.isAccepted(user, client, t));
+    if (missingRequired) {
       user.addRequiredAction(TermsRequiredActionFactory.PROVIDER_ID);
     }
   }
@@ -62,24 +62,32 @@ public class TermsRequiredActionProvider implements RequiredActionProvider {
 
     MultivaluedMap<String, String> form = context.getHttpRequest().getDecodedFormParameters();
     List<String> acceptedList = form.get(FORM_PARAM_ACCEPTED);
-    Set<String> accepted = acceptedList == null ? Set.of() : Set.copyOf(acceptedList);
+    Set<String> accepted = acceptedList == null ? Set.of() : new HashSet<>(acceptedList);
 
-    List<Term> missing = requiredTerms.stream()
-        .filter(t -> !accepted.contains(t.id()))
+    // 1) required must be checked
+    List<Term> missingRequired = requiredTerms.stream()
+        .filter(t -> !accepted.contains(t.key()))
         .toList();
 
-    if (!missing.isEmpty()) {
+    if (!missingRequired.isEmpty()) {
       Response challenge = context.form()
           .setError("You must accept all required terms.")
           .setAttribute("terms", bundle.terms())
-          .setAttribute("missing", missing.stream().map(Term::id).toList())
+          .setAttribute("missing", missingRequired.stream().map(Term::key).toList())
           .createForm("terms.ftl");
       context.challenge(challenge);
       return;
     }
 
-    for (Term t : requiredTerms) {
-      store.markAccepted(user, client, t);
+    // 2) store accepted for ALL checked terms (required + optional)
+    Map<String, Term> byKey = bundle.terms().stream()
+        .collect(Collectors.toMap(Term::key, t -> t, (a, b) -> a, LinkedHashMap::new));
+
+    for (String k : accepted) {
+      Term t = byKey.get(k);
+      if (t != null) {
+        store.markAccepted(user, client, t);
+      }
     }
 
     user.removeRequiredAction(TermsRequiredActionFactory.PROVIDER_ID);
