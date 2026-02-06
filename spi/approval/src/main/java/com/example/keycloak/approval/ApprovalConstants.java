@@ -6,9 +6,6 @@ public final class ApprovalConstants {
   public static final String ATTR_AUTO_APPROVE = "auto_approve";
   public static final String ROLE_APPROVED = "approved";
 
-  // Required Action ID (provider id)
-  public static final String RA_ID = "approval-pending";
-
   // auth note keys
   public static final String NOTE_CLIENT_ID = "approval.client_id";
   public static final String NOTE_CLIENT_UUID = "approval.client_uuid"; // internal id
