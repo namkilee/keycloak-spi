@@ -13,14 +13,16 @@ set -euo pipefail
 : "${REALM_ID:?}"                # realm name (not UUID)
 : "${SCOPE_ID:?}"
 : "${SCOPE_KEY:?}"
-: "${SCOPE_NAME:?}"
+: "${SCOPE_NAME:?}"              # ✅ actual Keycloak client-scope name
 : "${TC_SETS_JSON:?}"
 
 # =========================
 # Optional envs
 # =========================
 TC_PREFIX_ROOT="${TC_PREFIX_ROOT:-tc}"
-SYNC_MODE="${SYNC_MODE:-replace}"   # replace = tc.<scope>.* 삭제 후 재작성
+SYNC_MODE="${SYNC_MODE:-replace}"   # replace = tc.<scopeName>.* 삭제 후 재작성
+
+# legacy prefix cleanup 기준은 "실제 scope name"으로!
 PREFIX="${TC_PREFIX_ROOT}.${SCOPE_NAME}."
 
 # TLS truststore mode:
@@ -153,13 +155,15 @@ kc_kcadm config credentials \
   --secret "${KEYCLOAK_CLIENT_SECRET}"
 
 # =========================
-# Fetch current client-scope JSON
+# Fetch current client-scope JSON (for existing attributes)
 # =========================
 CURRENT_JSON="$(kc_kcadm get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}")"
 [[ -n "${CURRENT_JSON}" ]] || { echo "ERROR: CURRENT_JSON is empty (scope not found?)" >&2; exit 1; }
 
 # =========================
-# Build updated JSON on host (python), then stream into container/pod file
+# Build UPDATED payload:
+# - DO NOT PUT whole representation back (can fail with parse/unknown_error)
+# - PUT only {"attributes": {...}} minimal payload
 # =========================
 UPDATED_JSON="$(
   CURRENT_JSON="${CURRENT_JSON}" \
@@ -176,19 +180,23 @@ mode = os.environ.get("SYNC_MODE", "replace")
 
 attrs = current.get("attributes") or {}
 
-def s(x):
-    if x is None:
+def to_list_str(v):
+    if v is None:
         return None
-    if isinstance(x, bool):
-        return "true" if x else "false"
-    return str(x)
+    if isinstance(v, list):
+        return [str(x) for x in v]
+    return [str(v)]
 
-# replace면 기존 prefix(tc.<scope>.*) 삭제 + 새 포맷(tc.terms)도 삭제
+# normalize existing attrs to List[str] (safer for update)
+attrs = {k: to_list_str(v) for k, v in attrs.items() if to_list_str(v) is not None}
+
 if mode == "replace":
+    # remove legacy flatten keys for this scope (tc.<scopeName>.*)
     attrs = {k: v for k, v in attrs.items() if not k.startswith(prefix)}
+    # remove current tc.terms to rewrite it clean
     attrs.pop("tc.terms", None)
 
-# tc_sets(termKey -> cfg)를 terms 배열로 변환하여 tc.terms 하나로 저장
+# build terms list from tc_sets
 terms = []
 for term_key, cfg in (tc_sets or {}).items():
     if not isinstance(cfg, dict):
@@ -207,10 +215,11 @@ for term_key, cfg in (tc_sets or {}).items():
         "required": required,
     })
 
+# Keycloak attributes values: prefer List<String>
 attrs["tc.terms"] = [json.dumps(terms, ensure_ascii=False)]
 
-current["attributes"] = attrs
-print(json.dumps(current))
+payload = {"attributes": attrs}
+print(json.dumps(payload))
 PY
 )"
 
@@ -218,11 +227,19 @@ PY
 
 printf '%s' "${UPDATED_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
 
+# =========================
+# Validate JSON file inside container/pod before update (fast failure)
+# =========================
+kc_sh "python3 -m json.tool '${KC_UPDATED_JSON_PATH}' >/dev/null || { echo 'ERROR: invalid json file'; cat '${KC_UPDATED_JSON_PATH}'; exit 1; }"
 kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file is empty: ${KC_UPDATED_JSON_PATH}' >&2; exit 1; }"
 
+# =========================
+# Update only attributes (minimal payload)
+# =========================
 kc_kcadm update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" -f "${KC_UPDATED_JSON_PATH}"
 
 echo "Synced terms to attribute tc.terms (mode=${SYNC_MODE})"
 echo "Legacy prefix cleanup applied: ${PREFIX} (mode=replace only)"
+echo "Scope: id=${SCOPE_ID}, key=${SCOPE_KEY}, name=${SCOPE_NAME}"
 echo "KCADM_HOME_DIR (isolated): ${KCADM_HOME_DIR}"
 echo "Updated JSON path: ${KC_UPDATED_JSON_PATH} (inside ${KCADM_EXEC_MODE} runtime)"
