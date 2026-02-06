@@ -127,6 +127,7 @@ resource "null_resource" "scope_tc_attributes" {
   triggers = {
     scope_id     = keycloak_openid_client_scope.scopes[each.key].id
     scope_key    = each.value.scope_key
+    scope_name   = keycloak_openid_client_scope.scopes[each.key].name
     tc_sets_json = jsonencode(each.value.tc_sets)
   }
 
@@ -148,6 +149,7 @@ resource "null_resource" "scope_tc_attributes" {
       REALM_ID                 = var.realm_id
       SCOPE_ID                 = self.triggers.scope_id
       SCOPE_KEY                = self.triggers.scope_key
+      SCOPE_NAME               = self.triggers.scope_name
       TC_SETS_JSON             = self.triggers.tc_sets_json
 
       # prefix root 바꾸고 싶으면 여기만 수정 (default: tc)
@@ -167,6 +169,7 @@ resource "null_resource" "shared_scope_tc_attributes" {
   triggers = {
     scope_id     = keycloak_openid_client_scope.shared_scopes[each.key].id
     scope_key    = each.value.scope_key
+    scope_name   = keycloak_openid_client_scope.shared_scopes[each.key].name
     tc_sets_json = jsonencode(each.value.tc_sets)
   }
 
@@ -188,6 +191,7 @@ resource "null_resource" "shared_scope_tc_attributes" {
       REALM_ID                 = var.realm_id
       SCOPE_ID                 = self.triggers.scope_id
       SCOPE_KEY                = self.triggers.scope_key
+      SCOPE_NAME               = self.triggers.scope_name
       TC_SETS_JSON             = self.triggers.tc_sets_json
 
       # prefix root 바꾸고 싶으면 여기만 수정 (default: tc)

@@ -13,6 +13,7 @@ set -euo pipefail
 : "${REALM_ID:?}"                # realm name (not UUID)
 : "${SCOPE_ID:?}"
 : "${SCOPE_KEY:?}"
+: "${SCOPE_NAME:?}"
 : "${TC_SETS_JSON:?}"
 
 # =========================
@@ -20,7 +21,7 @@ set -euo pipefail
 # =========================
 TC_PREFIX_ROOT="${TC_PREFIX_ROOT:-tc}"
 SYNC_MODE="${SYNC_MODE:-replace}"   # replace = tc.<scope>.* 삭제 후 재작성
-PREFIX="${TC_PREFIX_ROOT}.${SCOPE_KEY}."
+PREFIX="${TC_PREFIX_ROOT}.${SCOPE_NAME}."
 
 # TLS truststore mode:
 # - truststore: create/import CA cert into JKS and configure kcadm truststore (recommended)
@@ -206,7 +207,7 @@ for term_key, cfg in (tc_sets or {}).items():
         "required": required,
     })
 
-attrs["tc.terms"] = json.dumps(terms, ensure_ascii=False)
+attrs["tc.terms"] = [json.dumps(terms, ensure_ascii=False)]
 
 current["attributes"] = attrs
 print(json.dumps(current))
