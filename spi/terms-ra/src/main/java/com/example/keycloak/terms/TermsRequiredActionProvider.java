@@ -6,7 +6,7 @@ import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import org.keycloak.authentication.RequiredActionContext;
 import org.keycloak.authentication.RequiredActionProvider;
-import org.keycloak.models.AuthenticationSessionModel;
+import org.keycloak.sessions.AuthenticationSessionModel;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.UserModel;
 
