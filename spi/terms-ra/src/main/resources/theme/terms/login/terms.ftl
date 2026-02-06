@@ -1,9 +1,11 @@
 <#-- =========================================================
      Terms & Conditions (Multi)
      Data provided by SPI:
-       - terms   : List<Term>  (record/class; access via methods for safety)
+       - terms   : List<Term>  (record/class; access via methods)
        - missing : List<String>
        - error   : String
+     Note:
+       - Auto-escaping is ON (HTML output format), so DO NOT use ?html.
      ========================================================= -->
 
 <!DOCTYPE html>
@@ -42,17 +44,15 @@
   <#-- Error message when required terms are missing -->
   <#if error?? && error?has_content>
     <div class="error">
-      ${error?html}
+      ${error}
     </div>
   </#if>
 
   <form method="post">
 
-    <#-- terms could be empty/null -->
     <#if terms?? && terms?size gt 0>
       <#list terms as term>
-
-        <#-- Support Java record/class safely via method calls -->
+        <#-- Java record/class safe access via methods -->
         <#assign termKey = (term.key())!"" >
         <#assign termTitle = (term.title())!termKey >
         <#assign termUrl = (term.url())!"" >
@@ -63,15 +63,14 @@
             <input
               type="checkbox"
               name="accepted"
-              value="${termKey?html}"
-              <#-- re-check already selected items on validation error:
-                   'missing' contains ONLY missing REQUIRED term keys,
-                   so if current termKey is NOT in missing -> user had checked it -->
+              value="${termKey}"
+              <#-- missing contains ONLY missing REQUIRED keys.
+                   If current key is not in missing, user had checked it previously. -->
               <#if missing?? && (missing?seq_contains(termKey) == false)>
                 checked
               </#if>
             />
-            <span class="term-title">${termTitle?html}</span>
+            <span class="term-title">${termTitle}</span>
 
             <#if termRequiredStr == "true">
               <span class="required">(required)</span>
@@ -80,20 +79,14 @@
             </#if>
           </label>
 
-          <#-- External URL (preferred) -->
           <#if termUrl?has_content>
-            <a
-              class="term-link"
-              href="${termUrl?html}"
-              target="_blank"
-              rel="noopener noreferrer">
+            <a class="term-link" href="${termUrl}" target="_blank" rel="noopener noreferrer">
               View details
             </a>
           <#else>
             <span class="term-link">(Details provided separately)</span>
           </#if>
         </div>
-
       </#list>
     <#else>
       <div class="error">
