@@ -8,6 +8,7 @@ import org.keycloak.models.KeycloakSessionFactory;
 
 public class TermsRequiredActionFactory implements RequiredActionFactory {
 
+  // MUST match Terraform keycloak_required_action.alias
   public static final String PROVIDER_ID = "terms-required-action";
 
   @Override
