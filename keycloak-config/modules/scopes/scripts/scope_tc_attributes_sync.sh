@@ -21,16 +21,9 @@ set -euo pipefail
 # =========================
 TC_PREFIX_ROOT="${TC_PREFIX_ROOT:-tc}"
 SYNC_MODE="${SYNC_MODE:-replace}"   # replace = tc.<scopeName>.* 삭제 후 재작성
-
-# legacy prefix cleanup 기준은 "실제 scope name"으로!
 PREFIX="${TC_PREFIX_ROOT}.${SCOPE_NAME}."
 
-# TLS truststore mode:
-# - truststore: create/import CA cert into JKS and configure kcadm truststore (recommended)
-# - off: do nothing (use if http:// or publicly trusted cert chain)
 KEYCLOAK_TLS_MODE="${KEYCLOAK_TLS_MODE:-truststore}"
-
-# IMPORTANT: must be a path INSIDE container/pod because kcadm runs there
 KEYCLOAK_CA_CERT_PEM="${KEYCLOAK_CA_CERT_PEM:-/certs/tls.crt}"
 
 KCADM_TRUSTSTORE_DIR="${KCADM_TRUSTSTORE_DIR:-/tmp}"
@@ -41,13 +34,7 @@ KCADM_TRUSTSTORE_ALIAS="${KCADM_TRUSTSTORE_ALIAS:-keycloak-ca}"
 KC_TMP_DIR="${KC_TMP_DIR:-/tmp}"
 KC_UPDATED_JSON_PATH="${KC_UPDATED_JSON_PATH:-${KC_TMP_DIR}/kc-scope-update-${SCOPE_ID}.json}"
 
-# Bitnami Keycloak image: keytool exists here but PATH may not include it in /bin/sh non-login shells
 KEYTOOL_BIN="${KEYTOOL_BIN:-/opt/bitnami/java/bin/keytool}"
-
-# IMPORTANT:
-# kcadm writes config to $HOME/.keycloak/kcadm.config and uses a lock.
-# Terraform may run local-exec in parallel -> lock conflict if HOME is shared.
-# So we isolate HOME per execution by default.
 KCADM_HOME_DIR="${KCADM_HOME_DIR:-/tmp/kcadm-home-${REALM_ID}-${SCOPE_ID}-${SCOPE_KEY}}"
 
 # =========================
@@ -58,7 +45,7 @@ kc_init_exec() {
     docker)
       : "${KEYCLOAK_CONTAINER_NAME:?}"
       KC_EXEC=(docker exec "${KEYCLOAK_CONTAINER_NAME}")
-      KC_EXEC_I=(docker exec -i "${KEYCLOAK_CONTAINER_NAME}")   # stdin 전달용
+      KC_EXEC_I=(docker exec -i "${KEYCLOAK_CONTAINER_NAME}")
       ;;
     kubectl)
       : "${KEYCLOAK_NAMESPACE:?}"
@@ -67,7 +54,7 @@ kc_init_exec() {
       pod="$(kubectl -n "${KEYCLOAK_NAMESPACE}" get pod -l "${KEYCLOAK_POD_SELECTOR}" -o jsonpath='{.items[0].metadata.name}')"
       [[ -n "${pod}" ]] || { echo "No Keycloak pod found" >&2; exit 1; }
       KC_EXEC=(kubectl -n "${KEYCLOAK_NAMESPACE}" exec "${pod}" --)
-      KC_EXEC_I=(kubectl -n "${KEYCLOAK_NAMESPACE}" exec -i "${pod}" --)  # stdin 전달용
+      KC_EXEC_I=(kubectl -n "${KEYCLOAK_NAMESPACE}" exec -i "${pod}" --)
       ;;
     *)
       echo "Unsupported KCADM_EXEC_MODE: ${KCADM_EXEC_MODE}" >&2
@@ -76,12 +63,10 @@ kc_init_exec() {
   esac
 }
 
-# Run shell inside container/pod with isolated HOME
 kc_sh() {
   "${KC_EXEC[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; $*"
 }
 
-# Run kcadm inside container/pod with isolated HOME (robust argv passing)
 kc_kcadm() {
   "${KC_EXEC[@]}" /bin/sh -lc '
     set -e
@@ -92,7 +77,6 @@ kc_kcadm() {
   ' -- "${KCADM_HOME_DIR}" "${KCADM_PATH}" "$@"
 }
 
-# Write a file inside container/pod using stdin (no docker cp / kubectl cp)
 kc_write_file() {
   local path="$1"
   "${KC_EXEC_I[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; mkdir -p \"$(dirname "$path")\" && cat > \"$path\""
@@ -101,28 +85,16 @@ kc_write_file() {
 kc_init_exec
 
 # =========================
-# TLS truststore setup
+# TLS truststore setup (container-side, no python needed)
 # =========================
 if [[ "${KEYCLOAK_TLS_MODE}" == "truststore" ]]; then
-  if [[ -z "${KEYCLOAK_CA_CERT_PEM}" ]]; then
-    cat >&2 <<EOF
-ERROR: KEYCLOAK_TLS_MODE=truststore requires KEYCLOAK_CA_CERT_PEM (path inside container/pod).
-Because kcadm runs inside ${KCADM_EXEC_MODE}, this must exist INSIDE that runtime.
-EOF
-    exit 1
-  fi
-
   kc_sh "
     test -f '${KEYCLOAK_CA_CERT_PEM}' || { echo 'ERROR: cert not found: ${KEYCLOAK_CA_CERT_PEM}' >&2; exit 1; }
-
     if [ ! -x '${KEYTOOL_BIN}' ]; then
       echo 'ERROR: keytool not executable at ${KEYTOOL_BIN}' >&2
-      echo 'HINT: set KEYTOOL_BIN to the actual path inside container/pod' >&2
       exit 1
     fi
-
     mkdir -p '${KCADM_TRUSTSTORE_DIR}'
-
     if [ -f '${KCADM_TRUSTSTORE_FILE}' ] && '${KEYTOOL_BIN}' -list -keystore '${KCADM_TRUSTSTORE_FILE}' -storepass '${KCADM_TRUSTSTORE_PASS}' -alias '${KCADM_TRUSTSTORE_ALIAS}' >/dev/null 2>&1; then
       echo '[OK] truststore already configured'
     else
@@ -135,9 +107,7 @@ EOF
       echo '[OK] truststore created'
     fi
   "
-
   kc_kcadm config truststore --trustpass "${KCADM_TRUSTSTORE_PASS}" "${KCADM_TRUSTSTORE_FILE}"
-
 elif [[ "${KEYCLOAK_TLS_MODE}" == "off" ]]; then
   :
 else
@@ -161,15 +131,18 @@ CURRENT_JSON="$(kc_kcadm get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}")"
 [[ -n "${CURRENT_JSON}" ]] || { echo "ERROR: CURRENT_JSON is empty (scope not found?)" >&2; exit 1; }
 
 # =========================
-# Build UPDATED payload and stream directly into container/pod file
-# (avoid bash variable truncation / escaping issues)
-# - PUT only {"attributes": {...}} minimal payload
+# Build UPDATED payload on HOST (local-exec host), validate locally,
+# then stream into container/pod file.
+# (No python required inside container)
 # =========================
+TMP_JSON="$(mktemp)"
+trap 'rm -f "${TMP_JSON}"' EXIT
+
 CURRENT_JSON="${CURRENT_JSON}" \
 TC_SETS_JSON="${TC_SETS_JSON}" \
 PREFIX="${PREFIX}" \
 SYNC_MODE="${SYNC_MODE}" \
-python3 - <<'PY' | kc_write_file "${KC_UPDATED_JSON_PATH}"
+python3 - <<'PY' > "${TMP_JSON}"
 import json, os
 
 current = json.loads(os.environ["CURRENT_JSON"])
@@ -186,7 +159,7 @@ def to_list_str(v):
         return [str(x) for x in v]
     return [str(v)]
 
-# normalize existing attrs to List[str] (safer)
+# normalize existing attrs to List[str]
 norm = {}
 for k, v in attrs.items():
     lv = to_list_str(v)
@@ -195,22 +168,17 @@ for k, v in attrs.items():
 attrs = norm
 
 if mode == "replace":
-    # remove legacy flatten keys for this scope (tc.<scopeName>.*)
     attrs = {k: v for k, v in attrs.items() if not k.startswith(prefix)}
-    # remove current tc.terms to rewrite it clean
     attrs.pop("tc.terms", None)
 
-# build terms list from tc_sets
 terms = []
 for term_key, cfg in (tc_sets or {}).items():
     if not isinstance(cfg, dict):
         continue
-
     title = cfg.get("title") or term_key
     required = bool(cfg.get("required", False))
     version = cfg.get("version") or "unknown"
     url = cfg.get("url") or ""
-
     terms.append({
         "key": str(term_key),
         "title": str(title),
@@ -219,17 +187,26 @@ for term_key, cfg in (tc_sets or {}).items():
         "required": required,
     })
 
-# Keycloak attributes values: prefer List<String>
+# store JSON array as a single string in List<String>
 attrs["tc.terms"] = [json.dumps(terms, ensure_ascii=False)]
 
-payload = {"attributes": attrs}
-print(json.dumps(payload))
+print(json.dumps({"attributes": attrs}))
 PY
 
-# =========================
-# Validate JSON file inside container/pod before update
-# =========================
-kc_sh "python3 -m json.tool '${KC_UPDATED_JSON_PATH}' >/dev/null || { echo 'ERROR: invalid json file'; echo '--- file head ---'; sed -n '1,5p' '${KC_UPDATED_JSON_PATH}'; echo '--- file tail ---'; tail -n 5 '${KC_UPDATED_JSON_PATH}'; exit 1; }"
+# local validation (HOST)
+python3 -m json.tool "${TMP_JSON}" >/dev/null || {
+  echo "ERROR: invalid json generated on host"
+  echo "--- file head ---"
+  sed -n '1,5p' "${TMP_JSON}"
+  echo "--- file tail ---"
+  tail -n 5 "${TMP_JSON}"
+  exit 1
+}
+
+# stream validated JSON into container/pod
+cat "${TMP_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
+
+# minimal container-side check
 kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file is empty: ${KC_UPDATED_JSON_PATH}' >&2; exit 1; }"
 
 # =========================
