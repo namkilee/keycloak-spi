@@ -55,7 +55,8 @@ variable "clients" {
     root_url      = string
     redirect_uris = list(string)
     web_origins   = list(string)
-    login_theme   = optional(string, "AAP")
+    login_theme   = optional(string)
+    auto_approve  = optional(bool, false)
 
     # client settings
     access_type   = optional(string, "PUBLIC")
