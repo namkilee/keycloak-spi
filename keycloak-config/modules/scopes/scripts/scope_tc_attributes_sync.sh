@@ -13,7 +13,7 @@ set -euo pipefail
 : "${REALM_ID:?}"                # realm name (not UUID)
 : "${SCOPE_ID:?}"
 : "${SCOPE_KEY:?}"
-: "${SCOPE_NAME:?}"              # ✅ actual Keycloak client-scope name
+: "${SCOPE_NAME:?}"              # actual Keycloak client-scope name
 : "${TC_SETS_JSON:?}"
 
 # =========================
@@ -155,22 +155,21 @@ kc_kcadm config credentials \
   --secret "${KEYCLOAK_CLIENT_SECRET}"
 
 # =========================
-# Fetch current client-scope JSON (for existing attributes)
+# Fetch current client-scope JSON
 # =========================
 CURRENT_JSON="$(kc_kcadm get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}")"
 [[ -n "${CURRENT_JSON}" ]] || { echo "ERROR: CURRENT_JSON is empty (scope not found?)" >&2; exit 1; }
 
 # =========================
-# Build UPDATED payload:
-# - DO NOT PUT whole representation back (can fail with parse/unknown_error)
+# Build UPDATED payload and stream directly into container/pod file
+# (avoid bash variable truncation / escaping issues)
 # - PUT only {"attributes": {...}} minimal payload
 # =========================
-UPDATED_JSON="$(
-  CURRENT_JSON="${CURRENT_JSON}" \
-  TC_SETS_JSON="${TC_SETS_JSON}" \
-  PREFIX="${PREFIX}" \
-  SYNC_MODE="${SYNC_MODE}" \
-  python3 - <<'PY'
+CURRENT_JSON="${CURRENT_JSON}" \
+TC_SETS_JSON="${TC_SETS_JSON}" \
+PREFIX="${PREFIX}" \
+SYNC_MODE="${SYNC_MODE}" \
+python3 - <<'PY' | kc_write_file "${KC_UPDATED_JSON_PATH}"
 import json, os
 
 current = json.loads(os.environ["CURRENT_JSON"])
@@ -187,8 +186,13 @@ def to_list_str(v):
         return [str(x) for x in v]
     return [str(v)]
 
-# normalize existing attrs to List[str] (safer for update)
-attrs = {k: to_list_str(v) for k, v in attrs.items() if to_list_str(v) is not None}
+# normalize existing attrs to List[str] (safer)
+norm = {}
+for k, v in attrs.items():
+    lv = to_list_str(v)
+    if lv is not None:
+        norm[k] = lv
+attrs = norm
 
 if mode == "replace":
     # remove legacy flatten keys for this scope (tc.<scopeName>.*)
@@ -221,16 +225,11 @@ attrs["tc.terms"] = [json.dumps(terms, ensure_ascii=False)]
 payload = {"attributes": attrs}
 print(json.dumps(payload))
 PY
-)"
-
-[[ -n "${UPDATED_JSON}" ]] || { echo "ERROR: UPDATED_JSON is empty" >&2; exit 1; }
-
-printf '%s' "${UPDATED_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
 
 # =========================
-# Validate JSON file inside container/pod before update (fast failure)
+# Validate JSON file inside container/pod before update
 # =========================
-kc_sh "python3 -m json.tool '${KC_UPDATED_JSON_PATH}' >/dev/null || { echo 'ERROR: invalid json file'; cat '${KC_UPDATED_JSON_PATH}'; exit 1; }"
+kc_sh "python3 -m json.tool '${KC_UPDATED_JSON_PATH}' >/dev/null || { echo 'ERROR: invalid json file'; echo '--- file head ---'; sed -n '1,5p' '${KC_UPDATED_JSON_PATH}'; echo '--- file tail ---'; tail -n 5 '${KC_UPDATED_JSON_PATH}'; exit 1; }"
 kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file is empty: ${KC_UPDATED_JSON_PATH}' >&2; exit 1; }"
 
 # =========================
