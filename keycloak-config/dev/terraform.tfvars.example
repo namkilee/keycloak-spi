@@ -14,6 +14,29 @@ bootstrap_state_secret_key = "minio123"
 approval_portal_url = "https://approval.dev.example.com"
 
 shared_scopes = {
+  shared-terms-base = {
+    description = "Shared terms bundle: base (tos/privacy)"
+    tc_sets = {
+      tos = {
+        title    = "서비스 이용약관"
+        required = true
+        version  = "2026-02-06"
+        url      = "https://example.com/terms/tos"
+      }
+      privacy = {
+        title    = "개인정보 처리방침"
+        required = true
+        version  = "2026-02-01"
+        url      = "https://example.com/terms/privacy"
+      }
+      mkt = {
+        title    = "마케팅 수신동의"
+        required = false
+        version  = "2026-01-01"
+        url      = "https://example.com/terms/mkt"
+      }
+    }
+  },
   common-claims = {
     description = "Shared claims scope"
     mappers = [
@@ -40,7 +63,7 @@ clients = {
     root_url      = "https://app.dev.example.com"
     redirect_uris = ["https://app.dev.example.com/*"]
     web_origins   = ["https://app.dev.example.com"]
-    login_theme   = "AAP"
+    login_theme   = "custom_theme"
     # Optional client settings (defaults defined in variables.tf)
     access_type                 = "PUBLIC"
     standard_flow_enabled       = true
@@ -48,36 +71,26 @@ clients = {
     pkce_code_challenge_method  = "S256"
 
     scopes = {
-      terms = {
-        description = "Terms & Conditions"
+      terms-override = {
+        description = "Service A specific terms overrides/additions"
         tc_sets = {
-          privacy = {
+          tos = {
+            title    = "서비스A 이용약관"
             required = true
-            version  = "2026-01-16"
-            url      = "https://example.com/privacy"
-            template = "terms-privacy.ftl"
-            key      = "privacy"
+            version  = "2026-03-01"
+            url      = "https://service-a.example.com/legal/tos"
           }
-        }
-      }
-
-      claims = {
-        description = "Claims scope"
-      }
-
-      # (확장 예시) terms 말고 다른 scope에도 동일 구조로 적용 가능
-      marketing = {
-        description = "Marketing consent scope"
-        tc_sets = {
-          ads = {
-            required = false
-            version  = "2026-01-10"
+          service_a_extra = {
+            title    = "서비스A 추가 약관"
+            required = true
+            version  = "2026-02-10"
+            url      = "https://service-a.example.com/legal/extra"
           }
         }
       }
     }
 
-    default_scopes = ["terms", "claims", "common-claims"]
+    default_scopes = ["terms-override", "common-claims", "shared-terms-base"]
 
     mappers = [
       {
