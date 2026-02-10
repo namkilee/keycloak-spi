@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# 로그 유실 방지: stdout도 stderr로 합침 (Terraform에서 잘 보이게)
+exec 1>&2
+
 export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
-set -x
+# 필요하면 켜라(너무 시끄러우면 false로)
+: "${TRACE:=false}"
+if [ "${TRACE}" = "true" ]; then
+  set -x
+fi
 
 trap 'rc=$?;
   echo "[FATAL] rc=$rc at ${BASH_SOURCE##*/}:${LINENO} :: ${BASH_COMMAND}" >&2
   exit "$rc"
 ' ERR
-
-echo "[BOOT] start: $(date -Iseconds)" >&2
-echo "[BOOT] bash=${BASH_VERSION:-unknown} pwd=$(pwd)" >&2
 
 # =========================
 # Required envs
@@ -29,7 +33,7 @@ echo "[BOOT] bash=${BASH_VERSION:-unknown} pwd=$(pwd)" >&2
 # =========================
 # Optional envs
 # =========================
-: "${KCADM_PATH:=/opt/bitnami/keycloak/bin/kcadm.sh}"  # ✅ must be executable, not a dir
+: "${KCADM_PATH:=/opt/bitnami/keycloak/bin/kcadm.sh}"  # must be executable
 
 TC_PREFIX_ROOT="${TC_PREFIX_ROOT:-tc}"
 SYNC_MODE="${SYNC_MODE:-replace}"   # replace = tc.<scopeName>.* 삭제 후 재작성
@@ -50,18 +54,17 @@ KC_UPDATED_JSON_PATH="${KC_UPDATED_JSON_PATH:-${KC_TMP_DIR}/kc-scope-update-${RE
 KEYTOOL_BIN="${KEYTOOL_BIN:-/opt/bitnami/java/bin/keytool}"
 KCADM_HOME_DIR="${KCADM_HOME_DIR:-/tmp/kcadm-home-${REALM_ID}-${SCOPE_NAME}-${SCOPE_KEY}}"
 
-# Debug (optional)
 DEBUG="${DEBUG:-false}"
 
 log() { echo "[$(date -Iseconds)] $*" >&2; }
 
+# ✅ 중요: DEBUG가 false여도 절대 rc=1로 끝나지 않게 고정
 dbg() {
   if [ "${DEBUG:-false}" = "true" ]; then
     log "[DEBUG] $*"
   fi
   return 0
 }
-
 
 # =========================
 # Exec wrappers (docker/kubectl)
@@ -88,29 +91,39 @@ kc_init_exec() {
   esac
 }
 
+# 단순 쉘 실행(컨테이너/파드 내부)
 kc_sh() {
   "${KC_EXEC[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; $*"
 }
 
-# ✅ 가장 중요한 안정화: heredoc 제거 + stdin 보존
-# - docker/kubectl exec 환경에서 /bin/sh -lc '... heredoc' 형태가 조용히 실패하는 케이스 회피
+# ✅ 정답 구현: argv 안전 전달
+# - "$@"를 문자열로 말아넣지 않는다.
+# - sh -lc 뒤 인자를 positional($0,$1..)
+# - exec "$0" "$@" 로 정확한 argv 복원
 kc_kcadm() {
   "${KC_EXEC[@]}" env HOME="${KCADM_HOME_DIR}" \
-    /bin/sh -lc "set -e; mkdir -p \"\$HOME\"; exec \"${KCADM_PATH}\" \"$@\""
+    /bin/sh -lc 'set -e; mkdir -p "$HOME"; exec "$0" "$@"' \
+    "${KCADM_PATH}" "$@"
 }
 
+# 파일 스트리밍(컨테이너/파드 내부 path에 저장)
 kc_write_file() {
   path="$1"
-  "${KC_EXEC_I[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; mkdir -p \"$(dirname "$path")\" && cat > \"$path\""
+  # NOTE: dirname/path quoting 안전
+  "${KC_EXEC_I[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; mkdir -p \"$(dirname "$path")\"; cat > \"$path\""
 }
 
 kc_init_exec
 
+log "[BOOT] start (mode=${KCADM_EXEC_MODE}) scope=${SCOPE_NAME} realm=${REALM_ID}"
+dbg "KCADM_PATH=${KCADM_PATH}"
+dbg "KCADM_HOME_DIR=${KCADM_HOME_DIR}"
+dbg "KC_UPDATED_JSON_PATH=${KC_UPDATED_JSON_PATH}"
+
 # =========================
-# Preflight: ensure kcadm exists
+# Preflight: ensure kcadm exists (in runtime)
 # =========================
 kc_sh "test -x '${KCADM_PATH}' || { echo 'ERROR: KCADM_PATH not executable: ${KCADM_PATH}' >&2; exit 1; }"
-dbg "KCADM_PATH=${KCADM_PATH}"
 
 # =========================
 # TLS truststore setup
@@ -153,8 +166,8 @@ kc_kcadm config credentials \
   --secret "${KEYCLOAK_CLIENT_SECRET}"
 
 # =========================
-# Resolve/validate SCOPE_ID by SCOPE_NAME
-# (python3는 HOST에서 돌고, 컨테이너는 kcadm만 실행)
+# Resolve/validate SCOPE_ID by SCOPE_NAME (protect against recreate)
+# NOTE: python3 runs on HOST (terraform machine), NOT in container.
 # =========================
 dbg "Resolving scope id by name: ${SCOPE_NAME}"
 FOUND_ID="$(kc_kcadm get client-scopes -r "${REALM_ID}" -q "name=${SCOPE_NAME}" | python3 - <<'PY'
@@ -164,10 +177,12 @@ if isinstance(arr, list) and arr:
   print(arr[0].get("id",""))
 PY
 )"
+
 if [ -z "${FOUND_ID}" ]; then
   echo "ERROR: client-scope not found by name='${SCOPE_NAME}' in realm='${REALM_ID}'" >&2
   exit 1
 fi
+
 if [ "${FOUND_ID}" != "${SCOPE_ID}" ]; then
   log "[WARN] SCOPE_ID mismatch. Using id resolved by name."
   log "       env SCOPE_ID=${SCOPE_ID}"
@@ -195,7 +210,7 @@ dbg "Building updated payload (mode=${SYNC_MODE})"
 dbg "TC_SETS_JSON_SHA256=$(printf '%s' "${TC_SETS_JSON}" | sha256sum | awk '{print $1}')"
 
 # =========================
-# Build updated minimal payload on HOST
+# Build updated *minimal* ClientScopeRepresentation on HOST
 # =========================
 TMP_JSON="$(mktemp)"
 trap 'rm -f "${TMP_JSON}"' EXIT
@@ -206,12 +221,14 @@ PREFIX="${PREFIX}" \
 SYNC_MODE="${SYNC_MODE}" \
 python3 - <<'PY' > "${TMP_JSON}"
 import json, os
+
 current = json.loads(os.environ["CURRENT_JSON"])
 tc_sets = json.loads(os.environ["TC_SETS_JSON"])
 prefix = os.environ["PREFIX"]
 mode = os.environ.get("SYNC_MODE", "replace")
 
 payload = {}
+
 for k in ("id", "name", "protocol", "description", "consentScreenText", "includeInTokenScope"):
     if k in current and current[k] is not None:
         payload[k] = current[k]
@@ -254,17 +271,18 @@ python3 -m json.tool "${TMP_JSON}" >/dev/null || {
   exit 1
 }
 
+# Stream to container/pod
 cat "${TMP_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
 kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file empty: ${KC_UPDATED_JSON_PATH}' >&2; exit 1; }"
 
 # =========================
-# Update
+# Update client-scope with minimal representation
 # =========================
 log "Updating client-scope: realm=${REALM_ID} id=${SCOPE_ID} name=${SCOPE_NAME} key=${SCOPE_KEY}"
 kc_kcadm update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" -f "${KC_UPDATED_JSON_PATH}"
 
 # =========================
-# Verify
+# Verify update applied (read-back)
 # =========================
 UPDATED_JSON="$(kc_kcadm get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}")"
 UPDATED_TC_TERMS="$(echo "${UPDATED_JSON}" | python3 - <<'PY'
