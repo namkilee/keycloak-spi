@@ -140,31 +140,32 @@ resource "null_resource" "scope_tc_attributes" {
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-lc"]
-    command     = "${path.module}/scripts/scope_tc_attributes_sync.sh"
+
+    command = <<-EOT
+      set -euxo pipefail
+      ${path.module}/scripts/scope_tc_attributes_sync.sh
+    EOT
 
     environment = {
-      KCADM_EXEC_MODE          = var.kcadm_exec_mode
-      KCADM_PATH               = var.keycloak_kcadm_path
-      KEYCLOAK_CONTAINER_NAME  = var.keycloak_container_name
-      KEYCLOAK_NAMESPACE       = var.keycloak_namespace
-      KEYCLOAK_POD_SELECTOR    = var.keycloak_pod_selector
-      KEYCLOAK_URL             = var.keycloak_url
-      KEYCLOAK_AUTH_REALM      = var.keycloak_auth_realm
-      KEYCLOAK_CLIENT_ID       = var.keycloak_client_id
-      KEYCLOAK_CLIENT_SECRET   = var.keycloak_client_secret
-
-      REALM_ID                 = var.realm_id
-      SCOPE_ID                 = self.triggers.scope_id
-      SCOPE_KEY                = self.triggers.scope_key
-      SCOPE_NAME               = self.triggers.scope_name
-      TC_SETS_JSON             = self.triggers.tc_sets_json
-
-      # prefix root 바꾸고 싶으면 여기만 수정 (default: tc)
-      TC_PREFIX_ROOT           = "tc"
-      # replace: 삭제 포함 완전 동기화
-      SYNC_MODE                = "replace"
+      KCADM_EXEC_MODE        = var.kcadm_exec_mode
+      KCADM_PATH             = var.keycloak_kcadm_path
+      KEYCLOAK_CONTAINER_NAME= var.keycloak_container_name
+      KEYCLOAK_NAMESPACE     = var.keycloak_namespace
+      KEYCLOAK_POD_SELECTOR  = var.keycloak_pod_selector
+      KEYCLOAK_URL           = var.keycloak_url
+      KEYCLOAK_AUTH_REALM    = var.keycloak_auth_realm
+      KEYCLOAK_CLIENT_ID     = var.keycloak_client_id
+      KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
+      REALM_ID               = var.realm_id
+      SCOPE_ID               = self.triggers.scope_id
+      SCOPE_KEY              = self.triggers.scope_key
+      SCOPE_NAME             = self.triggers.scope_name
+      TC_SETS_JSON           = self.triggers.tc_sets_json
+      TC_PREFIX_ROOT         = "tc"
+      SYNC_MODE              = "replace"
     }
   }
+
 
   depends_on = [
     keycloak_openid_client_scope.scopes,
@@ -190,29 +191,32 @@ resource "null_resource" "shared_scope_tc_attributes" {
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-lc"]
-    command     = "${path.module}/scripts/scope_tc_attributes_sync.sh"
+
+    command = <<-EOT
+      set -euxo pipefail
+      ${path.module}/scripts/scope_tc_attributes_sync.sh
+    EOT
 
     environment = {
-      KCADM_EXEC_MODE          = var.kcadm_exec_mode
-      KCADM_PATH               = var.keycloak_kcadm_path
-      KEYCLOAK_CONTAINER_NAME  = var.keycloak_container_name
-      KEYCLOAK_NAMESPACE       = var.keycloak_namespace
-      KEYCLOAK_POD_SELECTOR    = var.keycloak_pod_selector
-      KEYCLOAK_URL             = var.keycloak_url
-      KEYCLOAK_AUTH_REALM      = var.keycloak_auth_realm
-      KEYCLOAK_CLIENT_ID       = var.keycloak_client_id
-      KEYCLOAK_CLIENT_SECRET   = var.keycloak_client_secret
-
-      REALM_ID                 = var.realm_id
-      SCOPE_ID                 = self.triggers.scope_id
-      SCOPE_KEY                = self.triggers.scope_key
-      SCOPE_NAME               = self.triggers.scope_name
-      TC_SETS_JSON             = self.triggers.tc_sets_json
-
-      TC_PREFIX_ROOT           = "tc"
-      SYNC_MODE                = "replace"
+      KCADM_EXEC_MODE        = var.kcadm_exec_mode
+      KCADM_PATH             = var.keycloak_kcadm_path
+      KEYCLOAK_CONTAINER_NAME= var.keycloak_container_name
+      KEYCLOAK_NAMESPACE     = var.keycloak_namespace
+      KEYCLOAK_POD_SELECTOR  = var.keycloak_pod_selector
+      KEYCLOAK_URL           = var.keycloak_url
+      KEYCLOAK_AUTH_REALM    = var.keycloak_auth_realm
+      KEYCLOAK_CLIENT_ID     = var.keycloak_client_id
+      KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
+      REALM_ID               = var.realm_id
+      SCOPE_ID               = self.triggers.scope_id
+      SCOPE_KEY              = self.triggers.scope_key
+      SCOPE_NAME             = self.triggers.scope_name
+      TC_SETS_JSON           = self.triggers.tc_sets_json
+      TC_PREFIX_ROOT         = "tc"
+      SYNC_MODE              = "replace"
     }
   }
+
 
   depends_on = [
     keycloak_openid_client_scope.shared_scopes,
