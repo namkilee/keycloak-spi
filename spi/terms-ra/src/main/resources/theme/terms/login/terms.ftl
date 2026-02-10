@@ -190,11 +190,16 @@
         </p>
 
         <#-- Error message when required terms are missing -->
-        <#if error?? && error?has_content>
-          <div class="tc-alert tc-alert--error" role="alert" aria-live="polite">
+        <#if errorKey?? && errorKey?has_content>
+          <div class="error">
+            ${msg(errorKey)}
+          </div>
+        <#elseif error?? && error?has_content>
+          <div class="error">
             ${error}
           </div>
         </#if>
+
 
         <form method="post" id="tc-form" novalidate>
           <#-- Terms list -->
