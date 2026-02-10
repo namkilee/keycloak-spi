@@ -87,12 +87,13 @@ kc_sh() {
   "${KC_EXEC[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; $*"
 }
 
-# ✅ argv 안전 전달 (정답 패턴)
 kc_kcadm() {
-  "${KC_EXEC[@]}" env HOME="${KCADM_HOME_DIR}" \
-    /bin/sh -lc 'set -e; mkdir -p "$HOME"; exec "$0" "$@"' \
-    "${KCADM_PATH}" "$@"
+  # HOME 디렉토리는 여기서 확실히 만들어둠 (컨테이너 내부에서)
+  "${KC_EXEC[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\""
+  # kcadm은 쉘 없이 argv 그대로 실행 (가장 안정적)
+  "${KC_EXEC[@]}" env HOME="${KCADM_HOME_DIR}" "${KCADM_PATH}" "$@"
 }
+
 
 kc_write_file() {
   path="$1"
