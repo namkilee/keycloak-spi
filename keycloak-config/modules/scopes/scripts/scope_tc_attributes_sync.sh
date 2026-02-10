@@ -94,7 +94,6 @@ kc_kcadm() {
   "${KC_EXEC[@]}" env HOME="${KCADM_HOME_DIR}" "${KCADM_PATH}" "$@"
 }
 
-
 kc_write_file() {
   path="$1"
   "${KC_EXEC_I[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; mkdir -p \"$(dirname "$path")\"; cat > \"$path\""
@@ -111,7 +110,8 @@ kc_kcadm_capture() {
   rc=$?
   set -e
 
-  eval "$out_var=\"\$out\""
+  # ✅ eval 제거: 안전하게 변수에 그대로 대입
+  printf -v "$out_var" '%s' "$out"
 
   if [ $rc -ne 0 ]; then
     echo "[ERROR] kcadm failed (rc=$rc): kcadm $*" >&2
@@ -187,17 +187,22 @@ dbg "kcadm login ok"
 dbg "Resolving scope id by name: ${SCOPE_NAME}"
 kc_kcadm_capture RAW_SCOPES_JSON get client-scopes -r "${REALM_ID}" -q "name=${SCOPE_NAME}"
 
+# ✅ FIX: 파이프 + python3 - + heredoc 충돌 제거 (python3 -c 사용)
 FOUND_ID="$(
-  printf '%s' "$RAW_SCOPES_JSON" | python3 - <<'PY'
-import sys, json
+  printf '%s' "$RAW_SCOPES_JSON" |
+  python3 -c 'import sys, json
 s = sys.stdin.read().strip()
+if not s or s[0] not in "[{":
+  raise SystemExit(f"ERROR: expected JSON from kcadm but got:\n{s[:800]}")
 try:
   obj = json.loads(s)
 except Exception as e:
-  raise SystemExit(f"ERROR: expected JSON from kcadm but got:\n{s[:800]}\n---\n{e}")
+  raise SystemExit(f"ERROR: invalid JSON from kcadm (head 800):\n{s[:800]}\n---\n{e}")
 if isinstance(obj, list) and obj:
-  print(obj[0].get("id",""))
-PY
+  print(obj[0].get("id","") or "")
+else:
+  print("")
+'
 )"
 
 if [ -z "${FOUND_ID}" ]; then
@@ -219,14 +224,13 @@ fi
 kc_kcadm_capture CURRENT_JSON get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}"
 
 # verify name
-printf '%s' "$CURRENT_JSON" | python3 - <<'PY'
-import json, os, sys
-cur=json.load(sys.stdin)
+printf '%s' "$CURRENT_JSON" | python3 -c 'import sys, json, os
+cur=json.loads(sys.stdin.read())
 expected=os.environ["SCOPE_NAME"]
 name=cur.get("name")
 if name!=expected:
-  raise SystemExit(f"ERROR: fetched scope name mismatch: got='{name}' expected='{expected}'")
-PY
+  raise SystemExit(f"ERROR: fetched scope name mismatch: got={name!r} expected={expected!r}")
+' SCOPE_NAME="${SCOPE_NAME}"
 
 dbg "Building updated payload (mode=${SYNC_MODE})"
 dbg "TC_SETS_JSON_SHA256=$(printf '%s' "${TC_SETS_JSON}" | sha256sum | awk '{print $1}')"
@@ -306,12 +310,17 @@ kc_kcadm_capture UPDATE_OUT update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" 
 # =========================
 kc_kcadm_capture UPDATED_JSON get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}"
 
-UPDATED_TC_TERMS="$(printf '%s' "$UPDATED_JSON" | python3 - <<'PY'
-import json, sys
-cur=json.load(sys.stdin)
-attrs=cur.get("attributes") or {}
-print(attrs.get("tc.terms",""))
-PY
+# ✅ FIX: 파이프 + python3 - + heredoc 충돌 제거 (python3 -c 사용)
+UPDATED_TC_TERMS="$(
+  printf '%s' "$UPDATED_JSON" |
+  python3 -c 'import sys, json
+s = sys.stdin.read().strip()
+if not s or s[0] not in "{[":
+  raise SystemExit(f"ERROR: expected JSON from kcadm but got:\n{s[:800]}")
+cur = json.loads(s)
+attrs = cur.get("attributes") or {}
+print(attrs.get("tc.terms","") or "")
+'
 )"
 
 if [ -z "${UPDATED_TC_TERMS}" ]; then
