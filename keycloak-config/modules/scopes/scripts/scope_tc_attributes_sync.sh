@@ -1,16 +1,8 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
-exec 1>&2   # ✅ stdout을 stderr로 보내서 Terraform이 놓치지 않게 함(핵심)
-export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
-set -x       # ✅ 실행되는 명령을 전부 출력
+set -euo pipefail
 
-# ✅ 어떤 이유로든 실패하면 “반드시” 에러를 찍고 종료
-trap 'rc=$?; echo "[FATAL] rc=$rc at ${BASH_SOURCE##*/}:${LINENO} :: ${BASH_COMMAND}"; exit $rc' ERR
-
-# ✅ 시작 로그(이게 찍히면 Terraform 출력 경로는 살아있음)
-echo "[BOOT] scope_tc_attributes_sync.sh start"
-echo "[BOOT] bash=${BASH_VERSION:-unknown} pwd=$(pwd) user=$(id -u):$(id -g)"
-
+# (선택) stderr로만 로그 찍고 싶으면 켜기
+# exec 1>&2
 
 # =========================
 # Required envs
@@ -53,8 +45,8 @@ KCADM_HOME_DIR="${KCADM_HOME_DIR:-/tmp/kcadm-home-${REALM_ID}-${SCOPE_NAME}-${SC
 # Debug (optional)
 DEBUG="${DEBUG:-false}"
 
-log() { echo "[$(date -Iseconds)] $*"; }
-dbg() { [[ "${DEBUG}" == "true" ]] && log "[DEBUG] $*"; }
+log() { echo "[$(date -Iseconds)] $*" >&2; }
+dbg() { [ "${DEBUG:-false}" = "true" ] && log "[DEBUG] $*"; }
 
 # =========================
 # Exec wrappers (docker/kubectl)
@@ -69,9 +61,8 @@ kc_init_exec() {
     kubectl)
       : "${KEYCLOAK_NAMESPACE:?}"
       : "${KEYCLOAK_POD_SELECTOR:?}"
-      local pod
       pod="$(kubectl -n "${KEYCLOAK_NAMESPACE}" get pod -l "${KEYCLOAK_POD_SELECTOR}" -o jsonpath='{.items[0].metadata.name}')"
-      [[ -n "${pod}" ]] || { echo "No Keycloak pod found" >&2; exit 1; }
+      [ -n "${pod}" ] || { echo "No Keycloak pod found" >&2; exit 1; }
       KC_EXEC=(kubectl -n "${KEYCLOAK_NAMESPACE}" exec "${pod}" --)
       KC_EXEC_I=(kubectl -n "${KEYCLOAK_NAMESPACE}" exec -i "${pod}" --)
       ;;
@@ -83,20 +74,18 @@ kc_init_exec() {
 }
 
 kc_sh() {
-  # NOTE: keep using sh -lc, but make sure HOME exists; keep minimal change
   "${KC_EXEC[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; $*"
 }
 
-# ✅ FIX 1) heredoc 제거 (stdin/tty 문제로 kcadm이 조용히 exit 1 하던 케이스 방지)
-# - 기존: /bin/sh -lc '...' -- HOME 인자 전달 형태 (stdin 삼킬 수 있음)
-# - 변경: env HOME=... + kcadm 직접 실행 (가장 안정적)
+# ✅ 가장 중요한 안정화: heredoc 제거 + stdin 보존
+# - docker/kubectl exec 환경에서 /bin/sh -lc '... heredoc' 형태가 조용히 실패하는 케이스 회피
 kc_kcadm() {
   "${KC_EXEC[@]}" env HOME="${KCADM_HOME_DIR}" \
     /bin/sh -lc "set -e; mkdir -p \"\$HOME\"; exec \"${KCADM_PATH}\" \"$@\""
 }
 
 kc_write_file() {
-  local path="$1"
+  path="$1"
   "${KC_EXEC_I[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; mkdir -p \"$(dirname "$path")\" && cat > \"$path\""
 }
 
@@ -111,7 +100,7 @@ dbg "KCADM_PATH=${KCADM_PATH}"
 # =========================
 # TLS truststore setup
 # =========================
-if [[ "${KEYCLOAK_TLS_MODE}" == "truststore" ]]; then
+if [ "${KEYCLOAK_TLS_MODE}" = "truststore" ]; then
   kc_sh "
     test -f '${KEYCLOAK_CA_CERT_PEM}' || { echo 'ERROR: cert not found: ${KEYCLOAK_CA_CERT_PEM}' >&2; exit 1; }
     if [ ! -x '${KEYTOOL_BIN}' ]; then
@@ -132,7 +121,7 @@ if [[ "${KEYCLOAK_TLS_MODE}" == "truststore" ]]; then
     fi
   "
   kc_kcadm config truststore --trustpass "${KCADM_TRUSTSTORE_PASS}" "${KCADM_TRUSTSTORE_FILE}"
-elif [[ "${KEYCLOAK_TLS_MODE}" == "off" ]]; then
+elif [ "${KEYCLOAK_TLS_MODE}" = "off" ]; then
   :
 else
   echo "Unsupported KEYCLOAK_TLS_MODE: ${KEYCLOAK_TLS_MODE} (use truststore|off)" >&2
@@ -149,7 +138,8 @@ kc_kcadm config credentials \
   --secret "${KEYCLOAK_CLIENT_SECRET}"
 
 # =========================
-# Resolve/validate SCOPE_ID by SCOPE_NAME (protect against recreate)
+# Resolve/validate SCOPE_ID by SCOPE_NAME
+# (python3는 HOST에서 돌고, 컨테이너는 kcadm만 실행)
 # =========================
 dbg "Resolving scope id by name: ${SCOPE_NAME}"
 FOUND_ID="$(kc_kcadm get client-scopes -r "${REALM_ID}" -q "name=${SCOPE_NAME}" | python3 - <<'PY'
@@ -159,11 +149,11 @@ if isinstance(arr, list) and arr:
   print(arr[0].get("id",""))
 PY
 )"
-if [[ -z "${FOUND_ID}" ]]; then
+if [ -z "${FOUND_ID}" ]; then
   echo "ERROR: client-scope not found by name='${SCOPE_NAME}' in realm='${REALM_ID}'" >&2
   exit 1
 fi
-if [[ "${FOUND_ID}" != "${SCOPE_ID}" ]]; then
+if [ "${FOUND_ID}" != "${SCOPE_ID}" ]; then
   log "[WARN] SCOPE_ID mismatch. Using id resolved by name."
   log "       env SCOPE_ID=${SCOPE_ID}"
   log "       resolved=${FOUND_ID} (name=${SCOPE_NAME})"
@@ -174,10 +164,10 @@ fi
 # Fetch current client-scope JSON
 # =========================
 CURRENT_JSON="$(kc_kcadm get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}")"
-[[ -n "${CURRENT_JSON}" ]] || { echo "ERROR: CURRENT_JSON is empty (scope not found?)" >&2; exit 1; }
+[ -n "${CURRENT_JSON}" ] || { echo "ERROR: CURRENT_JSON is empty (scope not found?)" >&2; exit 1; }
 
-# verify name
-echo "${CURRENT_JSON}" | python3 - <<PY
+# verify name (HOST python)
+echo "${CURRENT_JSON}" | python3 - <<'PY'
 import json, os, sys
 cur=json.load(sys.stdin)
 expected=os.environ["SCOPE_NAME"]
@@ -190,7 +180,7 @@ dbg "Building updated payload (mode=${SYNC_MODE})"
 dbg "TC_SETS_JSON_SHA256=$(printf '%s' "${TC_SETS_JSON}" | sha256sum | awk '{print $1}')"
 
 # =========================
-# Build updated *minimal* ClientScopeRepresentation on HOST
+# Build updated minimal payload on HOST
 # =========================
 TMP_JSON="$(mktemp)"
 trap 'rm -f "${TMP_JSON}"' EXIT
@@ -201,15 +191,12 @@ PREFIX="${PREFIX}" \
 SYNC_MODE="${SYNC_MODE}" \
 python3 - <<'PY' > "${TMP_JSON}"
 import json, os
-
 current = json.loads(os.environ["CURRENT_JSON"])
 tc_sets = json.loads(os.environ["TC_SETS_JSON"])
 prefix = os.environ["PREFIX"]
 mode = os.environ.get("SYNC_MODE", "replace")
 
 payload = {}
-
-# Safe fields for PUT (avoid read-only fields)
 for k in ("id", "name", "protocol", "description", "consentScreenText", "includeInTokenScope"):
     if k in current and current[k] is not None:
         payload[k] = current[k]
@@ -218,7 +205,6 @@ attrs = current.get("attributes") or {}
 if not isinstance(attrs, dict):
     attrs = {}
 
-# replace mode: cleanup legacy keys + rewrite tc.terms
 if mode == "replace":
     attrs = {k: v for k, v in attrs.items() if not str(k).startswith(prefix)}
     attrs.pop("tc.terms", None)
@@ -241,14 +227,11 @@ for term_key, cfg in (tc_sets or {}).items():
         "required": required,
     })
 
-# Store JSON array as a STRING attribute
 attrs["tc.terms"] = json.dumps(terms, ensure_ascii=False)
-
 payload["attributes"] = attrs
 print(json.dumps(payload, ensure_ascii=False))
 PY
 
-# host-side validation
 python3 -m json.tool "${TMP_JSON}" >/dev/null || {
   echo "ERROR: invalid json generated on host" >&2
   sed -n '1,5p' "${TMP_JSON}" >&2
@@ -256,18 +239,17 @@ python3 -m json.tool "${TMP_JSON}" >/dev/null || {
   exit 1
 }
 
-# Stream to container/pod
 cat "${TMP_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
 kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file empty: ${KC_UPDATED_JSON_PATH}' >&2; exit 1; }"
 
 # =========================
-# Update client-scope with minimal representation
+# Update
 # =========================
 log "Updating client-scope: realm=${REALM_ID} id=${SCOPE_ID} name=${SCOPE_NAME} key=${SCOPE_KEY}"
 kc_kcadm update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" -f "${KC_UPDATED_JSON_PATH}"
 
 # =========================
-# Verify update applied (read-back)
+# Verify
 # =========================
 UPDATED_JSON="$(kc_kcadm get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}")"
 UPDATED_TC_TERMS="$(echo "${UPDATED_JSON}" | python3 - <<'PY'
@@ -278,7 +260,7 @@ print(attrs.get("tc.terms",""))
 PY
 )"
 
-if [[ -z "${UPDATED_TC_TERMS}" ]]; then
+if [ -z "${UPDATED_TC_TERMS}" ]; then
   echo "ERROR: tc.terms missing after update (update may have failed or ignored)" >&2
   exit 1
 fi
