@@ -99,9 +99,16 @@ kc_write_file() {
   "${KC_EXEC_I[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; mkdir -p \"$(dirname "$path")\"; cat > \"$path\""
 }
 
-# ✅ kcadm 결과를 stdout+stderr 통합 캡처 + rc/empty 검증
+# ✅ kcadm 결과를 stdout+stderr 통합 캡처 + rc 검증
+#    - 기본: empty output은 에러
+#    - --allow-empty: empty output 허용 (update/delete 등)
 kc_kcadm_capture() {
-  # usage: kc_kcadm_capture <varname> <kcadm args...>
+  allow_empty="false"
+  if [ "${1:-}" = "--allow-empty" ]; then
+    allow_empty="true"
+    shift
+  fi
+
   out_var="$1"
   shift
 
@@ -110,7 +117,7 @@ kc_kcadm_capture() {
   rc=$?
   set -e
 
-  # ✅ eval 제거: 안전하게 변수에 그대로 대입
+  # ✅ eval 제거: 안전한 대입
   printf -v "$out_var" '%s' "$out"
 
   if [ $rc -ne 0 ]; then
@@ -121,7 +128,7 @@ kc_kcadm_capture() {
     return $rc
   fi
 
-  if [ -z "$out" ]; then
+  if [ -z "$out" ] && [ "$allow_empty" != "true" ]; then
     echo "[ERROR] kcadm returned empty output: kcadm $*" >&2
     return 1
   fi
@@ -186,36 +193,30 @@ dbg "kcadm login ok"
 # =========================
 dbg "Resolving scope id by name: ${SCOPE_NAME}"
 kc_kcadm_capture RAW_SCOPES_JSON get client-scopes -r "${REALM_ID}" -q "name=${SCOPE_NAME}"
-
 dbg "RAW_SCOPES_JSON(head 300)=$(printf '%s' "$RAW_SCOPES_JSON" | head -c 300)"
-dbg "SCOPE_NAME=${SCOPE_NAME} REALM_ID=${REALM_ID}"
 
-
+# ✅ 정확히 name==SCOPE_NAME 인 항목만 선택 (0개/복수개면 fail)
 FOUND_ID="$(
   printf '%s' "$RAW_SCOPES_JSON" |
   python3 -c 'import sys, json, os
 expected = os.environ["SCOPE_NAME"]
 s = sys.stdin.read().strip()
 if not s or s[0] not in "[{":
-  raise SystemExit(f"ERROR: expected JSON from kcadm but got:\n{s[:800]}")
+  raise SystemExit(f"ERROR: expected JSON list from kcadm but got:\n{s[:800]}")
 obj = json.loads(s)
-
 if not isinstance(obj, list):
   raise SystemExit(f"ERROR: expected list from kcadm but got type={type(obj)} head:\n{s[:800]}")
-
 matches = [x for x in obj if isinstance(x, dict) and x.get("name") == expected]
 if len(matches) == 1:
   print(matches[0].get("id","") or "")
 elif len(matches) == 0:
-  # 디버그: 상위 몇 개 이름을 보여줘서 원인 파악 쉽게
-  names = [x.get("name") for x in obj[:10] if isinstance(x, dict)]
+  names = [x.get("name") for x in obj[:20] if isinstance(x, dict)]
   raise SystemExit(f"ERROR: no client-scope matched name={expected!r}. First names={names!r}")
 else:
   ids = [m.get("id") for m in matches]
   raise SystemExit(f"ERROR: multiple client-scopes matched name={expected!r}. ids={ids!r}")
 ' SCOPE_NAME="${SCOPE_NAME}"
 )"
-
 
 if [ -z "${FOUND_ID}" ]; then
   echo "ERROR: client-scope not found by name='${SCOPE_NAME}' in realm='${REALM_ID}'" >&2
@@ -235,7 +236,7 @@ fi
 # =========================
 kc_kcadm_capture CURRENT_JSON get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}"
 
-# verify name
+# verify name (안전장치 유지: 잘못된 scope 업데이트 방지)
 printf '%s' "$CURRENT_JSON" | python3 -c 'import sys, json, os
 cur=json.loads(sys.stdin.read())
 expected=os.environ["SCOPE_NAME"]
@@ -274,6 +275,7 @@ attrs = current.get("attributes") or {}
 if not isinstance(attrs, dict):
     attrs = {}
 
+# replace 모드: 레거시 prefix 키들 삭제 + tc.terms 재작성
 if mode == "replace":
     attrs = {k: v for k, v in attrs.items() if not str(k).startswith(prefix)}
     attrs.pop("tc.terms", None)
@@ -308,6 +310,7 @@ python3 -m json.tool "${TMP_JSON}" >/dev/null || {
   exit 1
 }
 
+# 컨테이너(또는 Pod) 내부로 JSON 파일 주입
 cat "${TMP_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
 kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file empty: ${KC_UPDATED_JSON_PATH}' >&2; exit 1; }"
 
@@ -315,14 +318,14 @@ kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file emp
 # Update client-scope with minimal representation
 # =========================
 log "Updating client-scope: realm=${REALM_ID} id=${SCOPE_ID} name=${SCOPE_NAME} key=${SCOPE_KEY}"
-kc_kcadm_capture UPDATE_OUT update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" -f "${KC_UPDATED_JSON_PATH}"
+# ✅ update는 성공해도 output이 비어있을 수 있으므로 allow-empty
+kc_kcadm_capture --allow-empty UPDATE_OUT update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" -f "${KC_UPDATED_JSON_PATH}"
 
 # =========================
 # Verify update applied (read-back)
 # =========================
 kc_kcadm_capture UPDATED_JSON get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}"
 
-# ✅ FIX: 파이프 + python3 - + heredoc 충돌 제거 (python3 -c 사용)
 UPDATED_TC_TERMS="$(
   printf '%s' "$UPDATED_JSON" |
   python3 -c 'import sys, json
