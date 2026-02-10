@@ -54,7 +54,14 @@ KCADM_HOME_DIR="${KCADM_HOME_DIR:-/tmp/kcadm-home-${REALM_ID}-${SCOPE_NAME}-${SC
 DEBUG="${DEBUG:-false}"
 
 log() { echo "[$(date -Iseconds)] $*" >&2; }
-dbg() { [ "${DEBUG:-false}" = "true" ] && log "[DEBUG] $*"; }
+
+dbg() {
+  if [ "${DEBUG:-false}" = "true" ]; then
+    log "[DEBUG] $*"
+  fi
+  return 0
+}
+
 
 # =========================
 # Exec wrappers (docker/kubectl)
