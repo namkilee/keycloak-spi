@@ -187,23 +187,35 @@ dbg "kcadm login ok"
 dbg "Resolving scope id by name: ${SCOPE_NAME}"
 kc_kcadm_capture RAW_SCOPES_JSON get client-scopes -r "${REALM_ID}" -q "name=${SCOPE_NAME}"
 
-# ✅ FIX: 파이프 + python3 - + heredoc 충돌 제거 (python3 -c 사용)
+dbg "RAW_SCOPES_JSON(head 300)=$(printf '%s' "$RAW_SCOPES_JSON" | head -c 300)"
+dbg "SCOPE_NAME=${SCOPE_NAME} REALM_ID=${REALM_ID}"
+
+
 FOUND_ID="$(
   printf '%s' "$RAW_SCOPES_JSON" |
-  python3 -c 'import sys, json
+  python3 -c 'import sys, json, os
+expected = os.environ["SCOPE_NAME"]
 s = sys.stdin.read().strip()
 if not s or s[0] not in "[{":
   raise SystemExit(f"ERROR: expected JSON from kcadm but got:\n{s[:800]}")
-try:
-  obj = json.loads(s)
-except Exception as e:
-  raise SystemExit(f"ERROR: invalid JSON from kcadm (head 800):\n{s[:800]}\n---\n{e}")
-if isinstance(obj, list) and obj:
-  print(obj[0].get("id","") or "")
+obj = json.loads(s)
+
+if not isinstance(obj, list):
+  raise SystemExit(f"ERROR: expected list from kcadm but got type={type(obj)} head:\n{s[:800]}")
+
+matches = [x for x in obj if isinstance(x, dict) and x.get("name") == expected]
+if len(matches) == 1:
+  print(matches[0].get("id","") or "")
+elif len(matches) == 0:
+  # 디버그: 상위 몇 개 이름을 보여줘서 원인 파악 쉽게
+  names = [x.get("name") for x in obj[:10] if isinstance(x, dict)]
+  raise SystemExit(f"ERROR: no client-scope matched name={expected!r}. First names={names!r}")
 else:
-  print("")
-'
+  ids = [m.get("id") for m in matches]
+  raise SystemExit(f"ERROR: multiple client-scopes matched name={expected!r}. ids={ids!r}")
+' SCOPE_NAME="${SCOPE_NAME}"
 )"
+
 
 if [ -z "${FOUND_ID}" ]; then
   echo "ERROR: client-scope not found by name='${SCOPE_NAME}' in realm='${REALM_ID}'" >&2
