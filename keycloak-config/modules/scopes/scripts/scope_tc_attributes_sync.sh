@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# 로그 유실 방지: stdout도 stderr로 합침 (Terraform에서 잘 보이게)
+# Terraform 콘솔 유실 방지: stdout도 stderr로
 exec 1>&2
-
-export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
-# 필요하면 켜라(너무 시끄러우면 false로)
-: "${TRACE:=false}"
-if [ "${TRACE}" = "true" ]; then
-  set -x
-fi
 
 trap 'rc=$?;
   echo "[FATAL] rc=$rc at ${BASH_SOURCE##*/}:${LINENO} :: ${BASH_COMMAND}" >&2
@@ -33,7 +26,7 @@ trap 'rc=$?;
 # =========================
 # Optional envs
 # =========================
-: "${KCADM_PATH:=/opt/bitnami/keycloak/bin/kcadm.sh}"  # must be executable
+: "${KCADM_PATH:=/opt/bitnami/keycloak/bin/kcadm.sh}"  # ✅ must be executable, not a dir
 
 TC_PREFIX_ROOT="${TC_PREFIX_ROOT:-tc}"
 SYNC_MODE="${SYNC_MODE:-replace}"   # replace = tc.<scopeName>.* 삭제 후 재작성
@@ -58,7 +51,6 @@ DEBUG="${DEBUG:-false}"
 
 log() { echo "[$(date -Iseconds)] $*" >&2; }
 
-# ✅ 중요: DEBUG가 false여도 절대 rc=1로 끝나지 않게 고정
 dbg() {
   if [ "${DEBUG:-false}" = "true" ]; then
     log "[DEBUG] $*"
@@ -91,37 +83,59 @@ kc_init_exec() {
   esac
 }
 
-# 단순 쉘 실행(컨테이너/파드 내부)
 kc_sh() {
   "${KC_EXEC[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; $*"
 }
 
-# ✅ 정답 구현: argv 안전 전달
-# - "$@"를 문자열로 말아넣지 않는다.
-# - sh -lc 뒤 인자를 positional($0,$1..)
-# - exec "$0" "$@" 로 정확한 argv 복원
+# ✅ argv 안전 전달 (정답 패턴)
 kc_kcadm() {
   "${KC_EXEC[@]}" env HOME="${KCADM_HOME_DIR}" \
     /bin/sh -lc 'set -e; mkdir -p "$HOME"; exec "$0" "$@"' \
     "${KCADM_PATH}" "$@"
 }
 
-# 파일 스트리밍(컨테이너/파드 내부 path에 저장)
 kc_write_file() {
   path="$1"
-  # NOTE: dirname/path quoting 안전
   "${KC_EXEC_I[@]}" /bin/sh -lc "set -e; HOME='${KCADM_HOME_DIR}'; mkdir -p \"\$HOME\"; mkdir -p \"$(dirname "$path")\"; cat > \"$path\""
+}
+
+# ✅ kcadm 결과를 stdout+stderr 통합 캡처 + rc/empty 검증
+kc_kcadm_capture() {
+  # usage: kc_kcadm_capture <varname> <kcadm args...>
+  out_var="$1"
+  shift
+
+  set +e
+  out="$(kc_kcadm "$@" 2>&1)"
+  rc=$?
+  set -e
+
+  eval "$out_var=\"\$out\""
+
+  if [ $rc -ne 0 ]; then
+    echo "[ERROR] kcadm failed (rc=$rc): kcadm $*" >&2
+    echo "[ERROR] output(begin)" >&2
+    echo "$out" >&2
+    echo "[ERROR] output(end)" >&2
+    return $rc
+  fi
+
+  if [ -z "$out" ]; then
+    echo "[ERROR] kcadm returned empty output: kcadm $*" >&2
+    return 1
+  fi
+
+  return 0
 }
 
 kc_init_exec
 
-log "[BOOT] start (mode=${KCADM_EXEC_MODE}) scope=${SCOPE_NAME} realm=${REALM_ID}"
+log "[BOOT] start mode=${KCADM_EXEC_MODE} realm=${REALM_ID} scope=${SCOPE_NAME}"
 dbg "KCADM_PATH=${KCADM_PATH}"
 dbg "KCADM_HOME_DIR=${KCADM_HOME_DIR}"
-dbg "KC_UPDATED_JSON_PATH=${KC_UPDATED_JSON_PATH}"
 
 # =========================
-# Preflight: ensure kcadm exists (in runtime)
+# Preflight: ensure kcadm exists
 # =========================
 kc_sh "test -x '${KCADM_PATH}' || { echo 'ERROR: KCADM_PATH not executable: ${KCADM_PATH}' >&2; exit 1; }"
 
@@ -159,27 +173,35 @@ fi
 # =========================
 # kcadm login
 # =========================
-kc_kcadm config credentials \
+kc_kcadm_capture KC_LOGIN_OUT config credentials \
   --server "${KEYCLOAK_URL}" \
   --realm "${KEYCLOAK_AUTH_REALM}" \
   --client "${KEYCLOAK_CLIENT_ID}" \
   --secret "${KEYCLOAK_CLIENT_SECRET}"
+dbg "kcadm login ok"
 
 # =========================
 # Resolve/validate SCOPE_ID by SCOPE_NAME (protect against recreate)
-# NOTE: python3 runs on HOST (terraform machine), NOT in container.
 # =========================
 dbg "Resolving scope id by name: ${SCOPE_NAME}"
-FOUND_ID="$(kc_kcadm get client-scopes -r "${REALM_ID}" -q "name=${SCOPE_NAME}" | python3 - <<'PY'
+kc_kcadm_capture RAW_SCOPES_JSON get client-scopes -r "${REALM_ID}" -q "name=${SCOPE_NAME}"
+
+FOUND_ID="$(
+  printf '%s' "$RAW_SCOPES_JSON" | python3 - <<'PY'
 import sys, json
-arr = json.load(sys.stdin)
-if isinstance(arr, list) and arr:
-  print(arr[0].get("id",""))
+s = sys.stdin.read().strip()
+try:
+  obj = json.loads(s)
+except Exception as e:
+  raise SystemExit(f"ERROR: expected JSON from kcadm but got:\n{s[:800]}\n---\n{e}")
+if isinstance(obj, list) and obj:
+  print(obj[0].get("id",""))
 PY
 )"
 
 if [ -z "${FOUND_ID}" ]; then
   echo "ERROR: client-scope not found by name='${SCOPE_NAME}' in realm='${REALM_ID}'" >&2
+  echo "kcadm returned: $RAW_SCOPES_JSON" >&2
   exit 1
 fi
 
@@ -193,11 +215,10 @@ fi
 # =========================
 # Fetch current client-scope JSON
 # =========================
-CURRENT_JSON="$(kc_kcadm get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}")"
-[ -n "${CURRENT_JSON}" ] || { echo "ERROR: CURRENT_JSON is empty (scope not found?)" >&2; exit 1; }
+kc_kcadm_capture CURRENT_JSON get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}"
 
-# verify name (HOST python)
-echo "${CURRENT_JSON}" | python3 - <<'PY'
+# verify name
+printf '%s' "$CURRENT_JSON" | python3 - <<'PY'
 import json, os, sys
 cur=json.load(sys.stdin)
 expected=os.environ["SCOPE_NAME"]
@@ -228,7 +249,6 @@ prefix = os.environ["PREFIX"]
 mode = os.environ.get("SYNC_MODE", "replace")
 
 payload = {}
-
 for k in ("id", "name", "protocol", "description", "consentScreenText", "includeInTokenScope"):
     if k in current and current[k] is not None:
         payload[k] = current[k]
@@ -271,7 +291,6 @@ python3 -m json.tool "${TMP_JSON}" >/dev/null || {
   exit 1
 }
 
-# Stream to container/pod
 cat "${TMP_JSON}" | kc_write_file "${KC_UPDATED_JSON_PATH}"
 kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file empty: ${KC_UPDATED_JSON_PATH}' >&2; exit 1; }"
 
@@ -279,13 +298,14 @@ kc_sh "test -s '${KC_UPDATED_JSON_PATH}' || { echo 'ERROR: updated json file emp
 # Update client-scope with minimal representation
 # =========================
 log "Updating client-scope: realm=${REALM_ID} id=${SCOPE_ID} name=${SCOPE_NAME} key=${SCOPE_KEY}"
-kc_kcadm update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" -f "${KC_UPDATED_JSON_PATH}"
+kc_kcadm_capture UPDATE_OUT update "client-scopes/${SCOPE_ID}" -r "${REALM_ID}" -f "${KC_UPDATED_JSON_PATH}"
 
 # =========================
 # Verify update applied (read-back)
 # =========================
-UPDATED_JSON="$(kc_kcadm get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}")"
-UPDATED_TC_TERMS="$(echo "${UPDATED_JSON}" | python3 - <<'PY'
+kc_kcadm_capture UPDATED_JSON get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}"
+
+UPDATED_TC_TERMS="$(printf '%s' "$UPDATED_JSON" | python3 - <<'PY'
 import json, sys
 cur=json.load(sys.stdin)
 attrs=cur.get("attributes") or {}
