@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+exec 1>&2   # ✅ stdout을 stderr로 보내서 Terraform이 놓치지 않게 함(핵심)
+export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
+set -x       # ✅ 실행되는 명령을 전부 출력
+
+# ✅ 어떤 이유로든 실패하면 “반드시” 에러를 찍고 종료
+trap 'rc=$?; echo "[FATAL] rc=$rc at ${BASH_SOURCE##*/}:${LINENO} :: ${BASH_COMMAND}"; exit $rc' ERR
+
+# ✅ 시작 로그(이게 찍히면 Terraform 출력 경로는 살아있음)
+echo "[BOOT] scope_tc_attributes_sync.sh start"
+echo "[BOOT] bash=${BASH_VERSION:-unknown} pwd=$(pwd) user=$(id -u):$(id -g)"
+
 
 # =========================
 # Required envs
