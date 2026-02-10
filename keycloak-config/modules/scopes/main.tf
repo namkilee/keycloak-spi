@@ -142,8 +142,10 @@ resource "null_resource" "scope_tc_attributes" {
     interpreter = ["/bin/bash", "-lc"]
 
     command = <<-EOT
-      set -euxo pipefail
-      ${path.module}/scripts/scope_tc_attributes_sync.sh
+      set -Eeuo pipefail
+      export TF_LOG_SCRIPT=1
+      echo "[TF] running scope_tc_attributes_sync.sh..."
+      "${path.module}/scripts/scope_tc_attributes_sync.sh" 2>&1 | tee /dev/stderr
     EOT
 
     environment = {
@@ -193,8 +195,10 @@ resource "null_resource" "shared_scope_tc_attributes" {
     interpreter = ["/bin/bash", "-lc"]
 
     command = <<-EOT
-      set -euxo pipefail
-      ${path.module}/scripts/scope_tc_attributes_sync.sh
+      set -Eeuo pipefail
+      export TF_LOG_SCRIPT=1
+      echo "[TF] running scope_tc_attributes_sync.sh..."
+      "${path.module}/scripts/scope_tc_attributes_sync.sh" 2>&1 | tee /dev/stderr
     EOT
 
     environment = {
