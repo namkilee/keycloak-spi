@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-# (선택) stderr로만 로그 찍고 싶으면 켜기
-# exec 1>&2
+export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
+set -x
+
+trap 'rc=$?;
+  echo "[FATAL] rc=$rc at ${BASH_SOURCE##*/}:${LINENO} :: ${BASH_COMMAND}" >&2
+  exit "$rc"
+' ERR
+
+echo "[BOOT] start: $(date -Iseconds)" >&2
+echo "[BOOT] bash=${BASH_VERSION:-unknown} pwd=$(pwd)" >&2
 
 # =========================
 # Required envs
