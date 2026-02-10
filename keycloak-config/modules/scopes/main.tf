@@ -76,6 +76,8 @@ locals {
     ]) : item.key => item
     if item.tc_sets != null
   }
+
+  scope_tc_script_rev = "rev-0.1"
 }
 
 resource "keycloak_openid_client_scope" "scopes" {
@@ -120,15 +122,20 @@ resource "keycloak_generic_protocol_mapper" "shared" {
   config          = each.value.config
 }
 
+# =========================
 # scope 별 tc attributes 완전 동기화(삭제 포함)
+# =========================
 resource "null_resource" "scope_tc_attributes" {
   for_each = local.scope_tc_payloads
 
   triggers = {
-    scope_id     = keycloak_openid_client_scope.scopes[each.key].id
-    scope_key    = each.value.scope_key
-    scope_name   = keycloak_openid_client_scope.scopes[each.key].name
-    tc_sets_json = jsonencode(each.value.tc_sets)
+    scope_id       = keycloak_openid_client_scope.scopes[each.key].id
+    scope_key      = each.value.scope_key
+    scope_name     = keycloak_openid_client_scope.scopes[each.key].name
+
+    tc_sets_json   = jsonencode(each.value.tc_sets)
+    tc_sets_sha256 = sha256(jsonencode(each.value.tc_sets))
+    script_rev     = local.scope_tc_script_rev
   }
 
   provisioner "local-exec" {
@@ -159,18 +166,26 @@ resource "null_resource" "scope_tc_attributes" {
     }
   }
 
-  depends_on = [keycloak_openid_client_scope.scopes]
+  depends_on = [
+    keycloak_openid_client_scope.scopes,
+    keycloak_generic_protocol_mapper.value_transform,
+  ]
 }
 
+# =========================
 # shared scope tc attributes 완전 동기화(삭제 포함)
+# =========================
 resource "null_resource" "shared_scope_tc_attributes" {
   for_each = local.shared_scope_tc_payloads
 
   triggers = {
-    scope_id     = keycloak_openid_client_scope.shared_scopes[each.key].id
-    scope_key    = each.value.scope_key
-    scope_name   = keycloak_openid_client_scope.shared_scopes[each.key].name
-    tc_sets_json = jsonencode(each.value.tc_sets)
+    scope_id       = keycloak_openid_client_scope.shared_scopes[each.key].id
+    scope_key      = each.value.scope_key
+    scope_name     = keycloak_openid_client_scope.shared_scopes[each.key].name
+
+    tc_sets_json   = jsonencode(each.value.tc_sets)
+    tc_sets_sha256 = sha256(jsonencode(each.value.tc_sets))
+    script_rev     = local.scope_tc_script_rev
   }
 
   provisioner "local-exec" {
@@ -194,12 +209,13 @@ resource "null_resource" "shared_scope_tc_attributes" {
       SCOPE_NAME               = self.triggers.scope_name
       TC_SETS_JSON             = self.triggers.tc_sets_json
 
-      # prefix root 바꾸고 싶으면 여기만 수정 (default: tc)
       TC_PREFIX_ROOT           = "tc"
-      # replace: 삭제 포함 완전 동기화
       SYNC_MODE                = "replace"
     }
   }
 
-  depends_on = [keycloak_openid_client_scope.shared_scopes]
+  depends_on = [
+    keycloak_openid_client_scope.shared_scopes,
+    keycloak_generic_protocol_mapper.shared,
+  ]
 }
