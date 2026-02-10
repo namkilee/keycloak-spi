@@ -141,12 +141,27 @@ resource "null_resource" "scope_tc_attributes" {
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-lc"]
 
-    command = <<-EOT
-      set -Eeuo pipefail
-      export TF_LOG_SCRIPT=1
-      echo "[TF] running scope_tc_attributes_sync.sh..."
-      "${path.module}/scripts/scope_tc_attributes_sync.sh" 2>&1 | tee /dev/stderr
-    EOT
+  command = <<-EOT
+    set -Eeuo pipefail
+
+    LOG="$(mktemp -t scope_tc_sync.XXXXXX.log)"
+    echo "[TF] log file: $LOG" >&2
+
+    # 무조건 bash로 실행 + 모든 출력은 LOG로 보냄
+    /bin/bash "${path.module}/scripts/scope_tc_attributes_sync.sh" >"$LOG" 2>&1 || {
+      rc=$?
+      echo "[TF] ===== script failed (rc=$rc) =====" >&2
+      echo "[TF] ----- head(200) -----" >&2
+      sed -n '1,200p' "$LOG" >&2 || true
+      echo "[TF] ----- tail(200) -----" >&2
+      tail -n 200 "$LOG" >&2 || true
+      echo "[TF] =============================" >&2
+      exit "$rc"
+    }
+
+    # 성공해도 로그를 보여주고 싶으면 아래 줄 유지
+    cat "$LOG" >&2
+  EOT
 
     environment = {
       KCADM_EXEC_MODE        = var.kcadm_exec_mode
@@ -194,12 +209,27 @@ resource "null_resource" "shared_scope_tc_attributes" {
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-lc"]
 
-    command = <<-EOT
-      set -Eeuo pipefail
-      export TF_LOG_SCRIPT=1
-      echo "[TF] running scope_tc_attributes_sync.sh..."
-      "${path.module}/scripts/scope_tc_attributes_sync.sh" 2>&1 | tee /dev/stderr
-    EOT
+  command = <<-EOT
+    set -Eeuo pipefail
+
+    LOG="$(mktemp -t scope_tc_sync.XXXXXX.log)"
+    echo "[TF] log file: $LOG" >&2
+
+    # 무조건 bash로 실행 + 모든 출력은 LOG로 보냄
+    /bin/bash "${path.module}/scripts/scope_tc_attributes_sync.sh" >"$LOG" 2>&1 || {
+      rc=$?
+      echo "[TF] ===== script failed (rc=$rc) =====" >&2
+      echo "[TF] ----- head(200) -----" >&2
+      sed -n '1,200p' "$LOG" >&2 || true
+      echo "[TF] ----- tail(200) -----" >&2
+      tail -n 200 "$LOG" >&2 || true
+      echo "[TF] =============================" >&2
+      exit "$rc"
+    }
+
+    # 성공해도 로그를 보여주고 싶으면 아래 줄 유지
+    cat "$LOG" >&2
+  EOT
 
     environment = {
       KCADM_EXEC_MODE        = var.kcadm_exec_mode
