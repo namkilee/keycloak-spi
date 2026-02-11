@@ -49,8 +49,7 @@ locals {
     ]) : item.key => item
   }
 
-  # scope 별 tc_sets payload (ex: terms, marketing ...)
-  # key: "<client_key>.<scope_key>"
+  # tc payloads (원래 구조 유지)
   scope_tc_payloads = {
     for item in flatten([
       for client_key, client in var.clients : [
@@ -76,8 +75,6 @@ locals {
     ]) : item.key => item
     if item.tc_sets != null
   }
-
-  scope_tc_script_rev = "rev-0.1"
 }
 
 resource "keycloak_openid_client_scope" "scopes" {
@@ -123,137 +120,101 @@ resource "keycloak_generic_protocol_mapper" "shared" {
 }
 
 # =========================
-# scope 별 tc attributes 완전 동기화(삭제 포함)
+# (개선) TC attributes: realm 단일 1회 동기화
 # =========================
-resource "null_resource" "scope_tc_attributes" {
-  for_each = local.scope_tc_payloads
+locals {
+  tc_sync_client_scopes = [
+    for k, v in local.scope_tc_payloads : {
+      scope_resource_key = k
+      scope_key          = v.scope_key
+      scope_id           = keycloak_openid_client_scope.scopes[k].id
+      scope_name         = keycloak_openid_client_scope.scopes[k].name
+      tc_sets            = v.tc_sets
+    }
+  ]
 
+  tc_sync_shared_scopes = [
+    for k, v in local.shared_scope_tc_payloads : {
+      scope_key  = v.scope_key
+      scope_id   = keycloak_openid_client_scope.shared_scopes[k].id
+      scope_name = keycloak_openid_client_scope.shared_scopes[k].name
+      tc_sets    = v.tc_sets
+    }
+  ]
+
+  tc_sync_payload = {
+    realm_id        = var.realm_id
+    sync_mode       = var.tc_sync.mode
+    allow_delete    = var.tc_sync.allow_delete
+    tc_prefix_root  = var.tc_sync.tc_prefix_root
+    dry_run         = var.tc_sync.dry_run
+    max_retries     = var.tc_sync.max_retries
+    backoff_ms      = var.tc_sync.backoff_ms
+
+    client_scopes = local.tc_sync_client_scopes
+    shared_scopes = local.tc_sync_shared_scopes
+  }
+
+  tc_sync_payload_sha = sha256(jsonencode(local.tc_sync_payload))
+}
+
+resource "null_resource" "tc_attributes_sync_all" {
   triggers = {
-    scope_id       = keycloak_openid_client_scope.scopes[each.key].id
-    scope_key      = each.value.scope_key
-    scope_name     = keycloak_openid_client_scope.scopes[each.key].name
-
-    tc_sets_json   = jsonencode(each.value.tc_sets)
-    tc_sets_sha256 = sha256(jsonencode(each.value.tc_sets))
-    script_rev     = local.scope_tc_script_rev
+    payload_sha  = local.tc_sync_payload_sha
+    script_rev   = var.tc_sync.script_rev
+    realm_id     = var.realm_id
+    keycloak_url = var.keycloak_url
+    exec_mode    = var.kcadm_exec_mode
   }
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-lc"]
+    command = <<-EOT
+      set -Eeuo pipefail
 
-  command = <<-EOT
-    set -Eeuo pipefail
+      LOG="$(mktemp -t tc_sync_all.XXXXXX.log)"
+      PAYLOAD="$(mktemp -t tc_sync_payload.XXXXXX.json)"
+      echo "[TF] log file: $LOG" >&2
+      echo '[TF] writing payload file...' >&2
 
-    LOG="$(mktemp -t scope_tc_sync.XXXXXX.log)"
-    echo "[TF] log file: $LOG" >&2
+      cat > "$PAYLOAD" <<'JSON'
+      ${jsonencode(local.tc_sync_payload)}
+JSON
 
-    # 무조건 bash로 실행 + 모든 출력은 LOG로 보냄
-    /bin/bash "${path.module}/scripts/scope_tc_attributes_sync.sh" >"$LOG" 2>&1 || {
-      rc=$?
-      echo "[TF] ===== script failed (rc=$rc) =====" >&2
-      echo "[TF] ----- head(200) -----" >&2
-      sed -n '1,200p' "$LOG" >&2 || true
-      echo "[TF] ----- tail(200) -----" >&2
-      tail -n 200 "$LOG" >&2 || true
-      echo "[TF] =============================" >&2
-      exit "$rc"
-    }
+      /bin/bash "${path.module}/scripts/scope_tc_attributes_sync_all.sh" >"$LOG" 2>&1 || {
+        rc=$?
+        echo "[TF] ===== script failed (rc=$rc) =====" >&2
+        echo "[TF] ----- head(200) -----" >&2
+        sed -n '1,200p' "$LOG" >&2 || true
+        echo "[TF] ----- tail(200) -----" >&2
+        tail -n 200 "$LOG" >&2 || true
+        echo "[TF] =============================" >&2
+        exit "$rc"
+      }
 
-    # 성공해도 로그를 보여주고 싶으면 아래 줄 유지
-    cat "$LOG" >&2
-  EOT
+      cat "$LOG" >&2
+    EOT
 
     environment = {
-      KCADM_EXEC_MODE        = var.kcadm_exec_mode
-      KCADM_PATH             = var.keycloak_kcadm_path
-      KEYCLOAK_CONTAINER_NAME= var.keycloak_container_name
-      KEYCLOAK_NAMESPACE     = var.keycloak_namespace
-      KEYCLOAK_POD_SELECTOR  = var.keycloak_pod_selector
-      KEYCLOAK_URL           = var.keycloak_url
-      KEYCLOAK_AUTH_REALM    = var.keycloak_auth_realm
-      KEYCLOAK_CLIENT_ID     = var.keycloak_client_id
-      KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
-      REALM_ID               = var.realm_id
-      SCOPE_ID               = self.triggers.scope_id
-      SCOPE_KEY              = self.triggers.scope_key
-      SCOPE_NAME             = self.triggers.scope_name
-      TC_SETS_JSON           = self.triggers.tc_sets_json
-      TC_PREFIX_ROOT         = "tc"
-      SYNC_MODE              = "replace"
+      KCADM_EXEC_MODE         = var.kcadm_exec_mode
+      KCADM_PATH              = var.keycloak_kcadm_path
+      KEYCLOAK_CONTAINER_NAME = var.keycloak_container_name
+      KEYCLOAK_NAMESPACE      = var.keycloak_namespace
+      KEYCLOAK_POD_SELECTOR   = var.keycloak_pod_selector
+
+      KEYCLOAK_URL            = var.keycloak_url
+      KEYCLOAK_AUTH_REALM     = var.keycloak_auth_realm
+      KEYCLOAK_CLIENT_ID      = var.keycloak_client_id
+      KEYCLOAK_CLIENT_SECRET  = var.keycloak_client_secret
+
+      TC_SYNC_PAYLOAD_FILE    = "$PAYLOAD"
     }
   }
-
 
   depends_on = [
     keycloak_openid_client_scope.scopes,
-    keycloak_generic_protocol_mapper.value_transform,
-  ]
-}
-
-# =========================
-# shared scope tc attributes 완전 동기화(삭제 포함)
-# =========================
-resource "null_resource" "shared_scope_tc_attributes" {
-  for_each = local.shared_scope_tc_payloads
-
-  triggers = {
-    scope_id       = keycloak_openid_client_scope.shared_scopes[each.key].id
-    scope_key      = each.value.scope_key
-    scope_name     = keycloak_openid_client_scope.shared_scopes[each.key].name
-
-    tc_sets_json   = jsonencode(each.value.tc_sets)
-    tc_sets_sha256 = sha256(jsonencode(each.value.tc_sets))
-    script_rev     = local.scope_tc_script_rev
-  }
-
-  provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-lc"]
-
-  command = <<-EOT
-    set -Eeuo pipefail
-
-    LOG="$(mktemp -t scope_tc_sync.XXXXXX.log)"
-    echo "[TF] log file: $LOG" >&2
-
-    # 무조건 bash로 실행 + 모든 출력은 LOG로 보냄
-    /bin/bash "${path.module}/scripts/scope_tc_attributes_sync.sh" >"$LOG" 2>&1 || {
-      rc=$?
-      echo "[TF] ===== script failed (rc=$rc) =====" >&2
-      echo "[TF] ----- head(200) -----" >&2
-      sed -n '1,200p' "$LOG" >&2 || true
-      echo "[TF] ----- tail(200) -----" >&2
-      tail -n 200 "$LOG" >&2 || true
-      echo "[TF] =============================" >&2
-      exit "$rc"
-    }
-
-    # 성공해도 로그를 보여주고 싶으면 아래 줄 유지
-    cat "$LOG" >&2
-  EOT
-
-    environment = {
-      KCADM_EXEC_MODE        = var.kcadm_exec_mode
-      KCADM_PATH             = var.keycloak_kcadm_path
-      KEYCLOAK_CONTAINER_NAME= var.keycloak_container_name
-      KEYCLOAK_NAMESPACE     = var.keycloak_namespace
-      KEYCLOAK_POD_SELECTOR  = var.keycloak_pod_selector
-      KEYCLOAK_URL           = var.keycloak_url
-      KEYCLOAK_AUTH_REALM    = var.keycloak_auth_realm
-      KEYCLOAK_CLIENT_ID     = var.keycloak_client_id
-      KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
-      REALM_ID               = var.realm_id
-      SCOPE_ID               = self.triggers.scope_id
-      SCOPE_KEY              = self.triggers.scope_key
-      SCOPE_NAME             = self.triggers.scope_name
-      TC_SETS_JSON           = self.triggers.tc_sets_json
-      TC_PREFIX_ROOT         = "tc"
-      SYNC_MODE              = "replace"
-    }
-  }
-
-
-  depends_on = [
     keycloak_openid_client_scope.shared_scopes,
+    keycloak_generic_protocol_mapper.value_transform,
     keycloak_generic_protocol_mapper.shared,
   ]
 }

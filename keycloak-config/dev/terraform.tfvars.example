@@ -218,3 +218,13 @@ saml_idp_mappers = [
     role  = "my-realm-role"
   }
 ]
+
+tc_sync = {
+  mode          = "replace"   # "replace" 또는 "merge"
+  allow_delete  = true        # prd 초기엔 false로 시작 추천
+  tc_prefix_root= "tc"
+  dry_run       = false       # 운영 리허설할 때 true
+  max_retries   = 6
+  backoff_ms    = 500
+  script_rev    = "rev-0.2"
+}

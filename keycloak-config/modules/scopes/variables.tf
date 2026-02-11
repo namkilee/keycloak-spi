@@ -48,6 +48,36 @@ variable "keycloak_pod_selector" {
   default     = null
 }
 
+# =========================
+# 운영 정책/보호장치 (추가)
+# =========================
+variable "tc_sync" {
+  type = object({
+    mode          = optional(string, "replace") # "replace" | "merge"
+    allow_delete  = optional(bool, true)        # replace에서 삭제 허용 여부
+    tc_prefix_root= optional(string, "tc")      # attribute prefix root
+    dry_run       = optional(bool, false)
+    max_retries   = optional(number, 5)
+    backoff_ms    = optional(number, 400)
+    script_rev    = optional(string, "rev-0.2")
+  })
+  default = {}
+}
+
+# =========================
+# tc_sets 타입 정리 (title 포함)
+# =========================
+locals {
+  tc_set_object = object({
+    required = bool
+    version  = string
+    title    = optional(string)
+    url      = optional(string)
+    template = optional(string)
+    # key는 굳이 중복 보관하지 않고 "map key"를 tc key로 사용 (권장)
+  })
+}
+
 variable "clients" {
   type = map(object({
     client_id     = string
@@ -59,13 +89,7 @@ variable "clients" {
     scopes = map(object({
       description = optional(string, "")
 
-      tc_sets = optional(map(object({
-        required = bool
-        version  = string
-        url      = optional(string)
-        template = optional(string)
-        key      = optional(string)
-      })))
+      tc_sets = optional(map(local.tc_set_object))
     }))
 
     default_scopes = list(string)
@@ -100,6 +124,18 @@ variable "clients" {
     error_message = "clients[*].mappers[*].scope must reference an existing scope key in clients[*].scopes."
   }
 
+  # tc_sets[*]는 url/template 중 최소 1개는 있어야 한다 (운영 권장)
+  validation {
+    condition = alltrue(flatten([
+      for client_key, c in var.clients : [
+        for scope_key, scope in c.scopes : [
+          for tc_key, tc in try(scope.tc_sets, {}) :
+          (try(tc.url, "") != "" || try(tc.template, "") != "")
+        ]
+      ]
+    ]))
+    error_message = "clients[*].scopes[*].tc_sets[*] must have at least one of url or template."
+  }
 }
 
 variable "shared_scopes" {
@@ -112,15 +148,19 @@ variable "shared_scopes" {
       config          = map(string)
     })), [])
 
-    tc_sets = optional(map(object({
-      required = bool
-      version  = string
-      url      = optional(string)
-      template = optional(string)
-      key      = optional(string)
-    })))
+    tc_sets = optional(map(local.tc_set_object))
   }))
 
   default     = {}
   description = "Shared client scopes and their protocol mappers."
+
+  validation {
+    condition = alltrue(flatten([
+      for scope_key, scope in var.shared_scopes : [
+        for tc_key, tc in try(scope.tc_sets, {}) :
+        (try(tc.url, "") != "" || try(tc.template, "") != "")
+      ]
+    ]))
+    error_message = "shared_scopes[*].tc_sets[*] must have at least one of url or template."
+  }
 }
