@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# ===== Required env =====
 : "${KCADM_EXEC_MODE:?}"
 : "${KCADM_PATH:?}"
 : "${KEYCLOAK_URL:?}"
@@ -10,7 +9,6 @@ set -Eeuo pipefail
 : "${KEYCLOAK_CLIENT_SECRET:?}"
 : "${TC_SYNC_PAYLOAD_FILE:?}"
 
-# Optional env (docker/kubectl)
 KEYCLOAK_CONTAINER_NAME="${KEYCLOAK_CONTAINER_NAME:-}"
 KEYCLOAK_NAMESPACE="${KEYCLOAK_NAMESPACE:-}"
 KEYCLOAK_POD_SELECTOR="${KEYCLOAK_POD_SELECTOR:-}"
@@ -18,12 +16,10 @@ KEYCLOAK_POD_SELECTOR="${KEYCLOAK_POD_SELECTOR:-}"
 log() { echo "[$(date -Is)] $*" >&2; }
 die() { log "FATAL: $*"; exit 1; }
 
-# ===== Isolated HOME to avoid kcadm.config lock =====
+# ---- Isolated HOME (kcadm.config lock 방지)
 KCADM_HOME="$(mktemp -d -t kcadm_home.XXXXXX)"
-cleanup() { rm -rf "$KCADM_HOME" || true; }
-trap cleanup EXIT
+trap 'rm -rf "$KCADM_HOME" || true' EXIT
 
-# ===== kcadm exec wrapper =====
 kc_exec() {
   case "$KCADM_EXEC_MODE" in
     docker)
@@ -43,63 +39,37 @@ kc_exec() {
   esac
 }
 
-# ===== retry wrapper =====
 with_retry() {
-  local -r max="${1}"; shift
-  local -r backoff_ms="${1}"; shift
-  local i=1
+  local max="$1"; shift
+  local backoff_ms="$1"; shift
+  local i=1 rc=0
   while true; do
     if "$@"; then return 0; fi
     rc=$?
-    if (( i >= max )); then
-      return "$rc"
-    fi
+    if (( i >= max )); then return "$rc"; fi
+    local sleep_sec
     sleep_sec="$(python3 - <<PY
 import math
 i=${i}
 ms=${backoff_ms}
-# simple exponential: base * 2^(i-1), capped a bit
 val = ms * (2 ** (i-1))
 val = min(val, 5000)
 print(val/1000.0)
 PY
 )"
-    log "WARN: command failed (rc=$rc), retry $i/$max after ${sleep_sec}s: $*"
+    log "WARN: failed rc=$rc retry $i/$max after ${sleep_sec}s: $*"
     sleep "$sleep_sec"
     i=$((i+1))
   done
 }
 
-# ===== Login =====
-log "Logging in via kcadm..."
-with_retry 5 400 kc_exec config credentials \
-  --server "$KEYCLOAK_URL" \
-  --realm "$KEYCLOAK_AUTH_REALM" \
-  --client "$KEYCLOAK_CLIENT_ID" \
-  --secret "$KEYCLOAK_CLIENT_SECRET" >/dev/null
+# ---- Load plan
+PLAN="$(mktemp -t tc_plan.XXXXXX.json)"
+python3 - <<'PY' >"$PLAN"
+import json
+p=json.load(open("${TC_SYNC_PAYLOAD_FILE}","r",encoding="utf-8"))
 
-# ===== Read payload =====
-PAYLOAD_JSON="$(cat "$TC_SYNC_PAYLOAD_FILE")"
-
-python3 - <<'PY' >/tmp/tc_sync_plan.json
-import json, sys
-
-p = json.loads(sys.stdin.read())
-
-def normalize_scope_list(scopes):
-  out = []
-  for s in scopes:
-    tc_sets = s.get("tc_sets") or {}
-    # tc_sets is a map: { tc_key: { required, version, title?, url?, template? } }
-    out.append({
-      "scope_id": s["scope_id"],
-      "scope_name": s.get("scope_name",""),
-      "scope_key": s.get("scope_key",""),
-      "tc_sets": tc_sets
-    })
-  return out
-
-plan = {
+plan={
   "realm_id": p["realm_id"],
   "sync_mode": p.get("sync_mode","replace"),
   "allow_delete": bool(p.get("allow_delete", True)),
@@ -107,181 +77,161 @@ plan = {
   "dry_run": bool(p.get("dry_run", False)),
   "max_retries": int(p.get("max_retries", 5)),
   "backoff_ms": int(p.get("backoff_ms", 400)),
-  "scopes": normalize_scope_list(p.get("client_scopes", [])) + normalize_scope_list(p.get("shared_scopes", []))
+  "scopes": []
 }
+
+def add(scopes):
+  for s in scopes or []:
+    plan["scopes"].append({
+      "scope_id": s["scope_id"],
+      "scope_name": s.get("scope_name",""),
+      "scope_key": s.get("scope_key",""),
+      "tc_sets": s.get("tc_sets") or {}
+    })
+
+add(p.get("client_scopes"))
+add(p.get("shared_scopes"))
 
 print(json.dumps(plan, ensure_ascii=False))
 PY
-<<<"$PAYLOAD_JSON"
 
-PLAN="/tmp/tc_sync_plan.json"
-REALM_ID="$(python3 -c 'import json;print(json.load(open("/tmp/tc_sync_plan.json"))["realm_id"])')"
+REALM_ID="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["realm_id"])')"
+SYNC_MODE="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["sync_mode"])')"
+ALLOW_DELETE="$(python3 -c 'import json;print("true" if json.load(open("'"$PLAN"'"))["allow_delete"] else "false")')"
+TC_PREFIX_ROOT="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["tc_prefix_root"])')"
+DRY_RUN="$(python3 -c 'import json;print("true" if json.load(open("'"$PLAN"'"))["dry_run"] else "false")')"
+MAX_RETRIES="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["max_retries"])')"
+BACKOFF_MS="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["backoff_ms"])')"
 
-log "Loaded plan: realm=$REALM_ID"
+log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TC_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS"
 
-# ===== Helper: get current attributes =====
+# ---- Login
+log "Login via kcadm..."
+with_retry 5 400 kc_exec config credentials \
+  --server "$KEYCLOAK_URL" \
+  --realm "$KEYCLOAK_AUTH_REALM" \
+  --client "$KEYCLOAK_CLIENT_ID" \
+  --secret "$KEYCLOAK_CLIENT_SECRET" >/dev/null
+
+# ---- Helpers
 get_scope_json() {
   local scope_id="$1"
-  # return full JSON for the client-scope
   kc_exec get "realms/$REALM_ID/client-scopes/$scope_id"
 }
-
-# ===== Helper: update attributes (partial representation) =====
 update_scope_attributes() {
   local scope_id="$1"
-  local attrs_json_file="$2"
-  # Keycloak admin usually accepts partial JSON; if your environment requires full representation,
-  # extend python block below to merge more fields (name/protocol/...) from current JSON.
-  kc_exec update "realms/$REALM_ID/client-scopes/$scope_id" -f "$attrs_json_file"
+  local file="$2"
+  kc_exec update "realms/$REALM_ID/client-scopes/$scope_id" -f "$file"
 }
 
-# ===== Main loop =====
-python3 - <<'PY' "$PLAN" > /tmp/tc_scope_list.json
-import json, sys
-plan = json.load(open(sys.argv[1]))
-print(json.dumps(plan["scopes"], ensure_ascii=False))
-PY
-
-SCOPES_JSON="$(cat /tmp/tc_scope_list.json)"
-
-# iterate scopes using python to avoid jq dependency
-python3 - <<'PY' >/tmp/tc_scope_ids.txt
+# ---- Build desired map
+DESIRED="$(mktemp -t tc_desired.XXXXXX.json)"
+python3 - <<'PY' >"$DESIRED"
 import json
-scopes=json.loads(open("/tmp/tc_scope_list.json").read())
-for s in scopes:
-  print(s["scope_id"])
-PY
-
-SYNC_MODE="$(python3 -c 'import json;print(json.load(open("/tmp/tc_sync_plan.json"))["sync_mode"])')"
-ALLOW_DELETE="$(python3 -c 'import json;print("true" if json.load(open("/tmp/tc_sync_plan.json"))["allow_delete"] else "false")')"
-TC_PREFIX_ROOT="$(python3 -c 'import json;print(json.load(open("/tmp/tc_sync_plan.json"))["tc_prefix_root"])')"
-DRY_RUN="$(python3 -c 'import json;print("true" if json.load(open("/tmp/tc_sync_plan.json"))["dry_run"] else "false")')"
-MAX_RETRIES="$(python3 -c 'import json;print(json.load(open("/tmp/tc_sync_plan.json"))["max_retries"])')"
-BACKOFF_MS="$(python3 -c 'import json;print(json.load(open("/tmp/tc_sync_plan.json"))["backoff_ms"])')"
-
-log "Sync config: mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TC_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS"
-
-# map scope_id -> desired tc_sets
-python3 - <<'PY' >/tmp/tc_scope_desired.json
-import json
-scopes=json.loads(open("/tmp/tc_scope_list.json").read())
+plan=json.load(open("'"$PLAN"'"))
 m={}
-for s in scopes:
+for s in plan["scopes"]:
   m[s["scope_id"]]={
-    "scope_name": s.get("scope_name",""),
     "scope_key": s.get("scope_key",""),
-    "tc_sets": s.get("tc_sets",{}) or {}
+    "scope_name": s.get("scope_name",""),
+    "tc_sets": s.get("tc_sets") or {}
   }
 print(json.dumps(m, ensure_ascii=False))
 PY
 
-DESIRED_MAP="/tmp/tc_scope_desired.json"
+# ---- Iterate scope ids
+IDS="$(mktemp -t tc_ids.XXXXXX.txt)"
+python3 - <<'PY' >"$IDS"
+import json
+plan=json.load(open("'"$PLAN"'"))
+for s in plan["scopes"]:
+  print(s["scope_id"])
+PY
 
 process_one_scope() {
   local scope_id="$1"
-  local current_json tmp_current tmp_update
+  local cur upd
+  cur="$(mktemp -t tc_cur.XXXXXX.json)"
+  upd="$(mktemp -t tc_upd.XXXXXX.json)"
 
-  tmp_current="$(mktemp -t tc_current.XXXXXX.json)"
-  tmp_update="$(mktemp -t tc_update.XXXXXX.json)"
-
-  # fetch current
-  if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" bash -lc "get_scope_json '$scope_id' > '$tmp_current'"; then
-    log "ERROR: failed to fetch scope $scope_id"
+  if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" bash -lc "get_scope_json '$scope_id' > '$cur'"; then
+    log "ERROR: fetch failed scope_id=$scope_id"
     return 1
   fi
 
-  # build merged attributes in python
-  python3 - <<'PY' "$tmp_current" "$DESIRED_MAP" "$scope_id" "$TC_PREFIX_ROOT" "$SYNC_MODE" "$ALLOW_DELETE" > "$tmp_update"
+  python3 - <<'PY' "$cur" "$DESIRED" "$scope_id" "$TC_PREFIX_ROOT" "$SYNC_MODE" "$ALLOW_DELETE" >"$upd"
 import json, sys
+cur=json.load(open(sys.argv[1]))
+desired=json.load(open(sys.argv[2]))
+scope_id=sys.argv[3]
+prefix=sys.argv[4]
+mode=sys.argv[5]
+allow_delete=(sys.argv[6].lower()=="true")
 
-cur = json.load(open(sys.argv[1]))
-desired_map = json.load(open(sys.argv[2]))
-scope_id = sys.argv[3]
-prefix = sys.argv[4]
-mode = sys.argv[5]
-allow_delete = (sys.argv[6].lower() == "true")
-
-d = desired_map.get(scope_id)
+d=desired.get(scope_id)
 if not d:
+  print(json.dumps({"attributes": cur.get("attributes") or {}}, ensure_ascii=False))
   raise SystemExit(0)
 
-cur_attrs = cur.get("attributes") or {}
-tc_sets = d.get("tc_sets") or {}
+cur_attrs=cur.get("attributes") or {}
+tc_sets=d.get("tc_sets") or {}
 
-def tc_attr_key(tc_key, field):
-  return f"{prefix}.{tc_key}.{field}"
+def k(tc_key, field): return f"{prefix}.{tc_key}.{field}"
 
-desired_tc_attrs = {}
+desired_tc={}
 for tc_key, tc in tc_sets.items():
-  desired_tc_attrs[tc_attr_key(tc_key,"required")] = "true" if tc.get("required") else "false"
-  desired_tc_attrs[tc_attr_key(tc_key,"version")] = str(tc.get("version",""))
-  title = tc.get("title")
-  if title:
-    desired_tc_attrs[tc_attr_key(tc_key,"title")] = str(title)
-  url = tc.get("url")
-  if url:
-    desired_tc_attrs[tc_attr_key(tc_key,"url")] = str(url)
-  template = tc.get("template")
-  if template:
-    desired_tc_attrs[tc_attr_key(tc_key,"template")] = str(template)
+  desired_tc[k(tc_key,"required")] = "true" if tc.get("required") else "false"
+  desired_tc[k(tc_key,"version")]  = str(tc.get("version",""))
+  if tc.get("title"):    desired_tc[k(tc_key,"title")]    = str(tc["title"])
+  if tc.get("url"):      desired_tc[k(tc_key,"url")]      = str(tc["url"])
+  if tc.get("template"): desired_tc[k(tc_key,"template")] = str(tc["template"])
 
-# keep non-tc attrs as-is
-new_attrs = dict(cur_attrs)
+new_attrs=dict(cur_attrs)
 
-if mode == "replace":
-  # remove all existing tc.* keys, then add desired
+if mode=="replace":
   if allow_delete:
-    for k in list(new_attrs.keys()):
-      if k.startswith(prefix + "."):
-        new_attrs.pop(k, None)
-  # if allow_delete is false, we don't remove; we only overwrite/add (safer)
-  for k,v in desired_tc_attrs.items():
-    new_attrs[k]=v
+    for kk in list(new_attrs.keys()):
+      if kk.startswith(prefix+"."):
+        new_attrs.pop(kk, None)
+  for kk,vv in desired_tc.items():
+    new_attrs[kk]=vv
 else:
-  # merge: only set/update desired tc keys; do not delete
-  for k,v in desired_tc_attrs.items():
-    new_attrs[k]=v
+  for kk,vv in desired_tc.items():
+    new_attrs[kk]=vv
 
-out = {"attributes": new_attrs}
-print(json.dumps(out, ensure_ascii=False))
+print(json.dumps({"attributes": new_attrs}, ensure_ascii=False))
 PY
 
-  # show summary
-  python3 - <<'PY' "$tmp_current" "$tmp_update" "$scope_id"
+  python3 - <<'PY' "$cur" "$upd" "$scope_id"
 import json, sys
 cur=json.load(open(sys.argv[1]))
 upd=json.load(open(sys.argv[2]))
-scope_id=sys.argv[3]
-
-cur_a=cur.get("attributes") or {}
-upd_a=upd.get("attributes") or {}
-# diff counts
-added=[k for k in upd_a.keys() if k not in cur_a]
-removed=[k for k in cur_a.keys() if k not in upd_a]
-changed=[k for k in upd_a.keys() if k in cur_a and cur_a[k]!=upd_a[k]]
-print(f"[SCOPE {scope_id}] attr changes: +{len(added)} -{len(removed)} ~{len(changed)}")
+sid=sys.argv[3]
+a=cur.get("attributes") or {}
+b=upd.get("attributes") or {}
+added=[k for k in b if k not in a]
+removed=[k for k in a if k not in b]
+changed=[k for k in b if k in a and a[k]!=b[k]]
+print(f"[SCOPE {sid}] +{len(added)} -{len(removed)} ~{len(changed)}")
 PY
 
   if [[ "$DRY_RUN" == "true" ]]; then
-    log "[DRY-RUN] skip update for scope $scope_id"
+    log "[DRY-RUN] skip update scope_id=$scope_id"
     return 0
   fi
 
-  # apply update
-  if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" bash -lc "update_scope_attributes '$scope_id' '$tmp_update' >/dev/null"; then
-    log "ERROR: failed to update scope $scope_id"
+  if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" bash -lc "update_scope_attributes '$scope_id' '$upd' >/dev/null"; then
+    log "ERROR: update failed scope_id=$scope_id"
     return 1
   fi
 
-  log "OK: updated scope $scope_id"
+  log "OK: updated scope_id=$scope_id"
 }
 
-rc_all=0
-while read -r scope_id; do
-  [[ -n "$scope_id" ]] || continue
-  if ! process_one_scope "$scope_id"; then
-    rc_all=1
-  fi
-done < /tmp/tc_scope_ids.txt
+rc=0
+while read -r sid; do
+  [[ -n "$sid" ]] || continue
+  process_one_scope "$sid" || rc=1
+done <"$IDS"
 
-exit "$rc_all"
+exit "$rc"

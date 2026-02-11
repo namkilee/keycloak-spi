@@ -49,7 +49,7 @@ locals {
     ]) : item.key => item
   }
 
-  # tc payloads (원래 구조 유지)
+  # tc payload
   scope_tc_payloads = {
     for item in flatten([
       for client_key, client in var.clients : [
@@ -120,16 +120,15 @@ resource "keycloak_generic_protocol_mapper" "shared" {
 }
 
 # =========================
-# (개선) TC attributes: realm 단일 1회 동기화
+# TC sync payload (realm 단일)
 # =========================
 locals {
   tc_sync_client_scopes = [
     for k, v in local.scope_tc_payloads : {
-      scope_resource_key = k
-      scope_key          = v.scope_key
-      scope_id           = keycloak_openid_client_scope.scopes[k].id
-      scope_name         = keycloak_openid_client_scope.scopes[k].name
-      tc_sets            = v.tc_sets
+      scope_key  = v.scope_key
+      scope_id   = keycloak_openid_client_scope.scopes[k].id
+      scope_name = keycloak_openid_client_scope.scopes[k].name
+      tc_sets    = v.tc_sets
     }
   ]
 
@@ -143,13 +142,13 @@ locals {
   ]
 
   tc_sync_payload = {
-    realm_id        = var.realm_id
-    sync_mode       = var.tc_sync.mode
-    allow_delete    = var.tc_sync.allow_delete
-    tc_prefix_root  = var.tc_sync.tc_prefix_root
-    dry_run         = var.tc_sync.dry_run
-    max_retries     = var.tc_sync.max_retries
-    backoff_ms      = var.tc_sync.backoff_ms
+    realm_id       = var.realm_id
+    sync_mode      = var.tc_sync.mode
+    allow_delete   = var.tc_sync.allow_delete
+    tc_prefix_root = var.tc_sync.tc_prefix_root
+    dry_run        = var.tc_sync.dry_run
+    max_retries    = var.tc_sync.max_retries
+    backoff_ms     = var.tc_sync.backoff_ms
 
     client_scopes = local.tc_sync_client_scopes
     shared_scopes = local.tc_sync_shared_scopes
@@ -175,10 +174,9 @@ resource "null_resource" "tc_attributes_sync_all" {
       LOG="$(mktemp -t tc_sync_all.XXXXXX.log)"
       PAYLOAD="$(mktemp -t tc_sync_payload.XXXXXX.json)"
       echo "[TF] log file: $LOG" >&2
-      echo '[TF] writing payload file...' >&2
 
       cat > "$PAYLOAD" <<'JSON'
-      ${jsonencode(local.tc_sync_payload)}
+${jsonencode(local.tc_sync_payload)}
 JSON
 
       /bin/bash "${path.module}/scripts/scope_tc_attributes_sync_all.sh" >"$LOG" 2>&1 || {
@@ -202,12 +200,12 @@ JSON
       KEYCLOAK_NAMESPACE      = var.keycloak_namespace
       KEYCLOAK_POD_SELECTOR   = var.keycloak_pod_selector
 
-      KEYCLOAK_URL            = var.keycloak_url
-      KEYCLOAK_AUTH_REALM     = var.keycloak_auth_realm
-      KEYCLOAK_CLIENT_ID      = var.keycloak_client_id
-      KEYCLOAK_CLIENT_SECRET  = var.keycloak_client_secret
+      KEYCLOAK_URL           = var.keycloak_url
+      KEYCLOAK_AUTH_REALM    = var.keycloak_auth_realm
+      KEYCLOAK_CLIENT_ID     = var.keycloak_client_id
+      KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
 
-      TC_SYNC_PAYLOAD_FILE    = "$PAYLOAD"
+      TC_SYNC_PAYLOAD_FILE   = "$PAYLOAD"
     }
   }
 
