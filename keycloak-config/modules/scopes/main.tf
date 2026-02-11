@@ -179,7 +179,9 @@ resource "null_resource" "tc_attributes_sync_all" {
 ${jsonencode(local.tc_sync_payload)}
 JSON
 
-      /bin/bash "${path.module}/scripts/scope_tc_attributes_sync_all.sh" >"$LOG" 2>&1 || {
+      export TC_SYNC_PAYLOAD_FILE="$PAYLOAD"
+
+      /bin/bash "${path.module}/scripts/tc/tc_sync_scopes.sh" >"$LOG" 2>&1 || {
         rc=$?
         echo "[TF] ===== script failed (rc=$rc) =====" >&2
         echo "[TF] ----- head(200) -----" >&2
@@ -205,7 +207,6 @@ JSON
       KEYCLOAK_CLIENT_ID     = var.keycloak_client_id
       KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
 
-      TC_SYNC_PAYLOAD_FILE   = "$PAYLOAD"
     }
   }
 

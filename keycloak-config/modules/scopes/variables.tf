@@ -98,7 +98,7 @@ variable "shared_scopes" {
       title    = optional(string)
       url      = optional(string)
       template = optional(string)
-    })))
+    })), {})
   }))
 
   default     = {}
@@ -132,8 +132,8 @@ variable "shared_scopes" {
   validation {
     condition = alltrue(flatten([
       for scope_key, scope in var.shared_scopes : [
-        for tc_key, tc in try(scope.tc_sets, {}) :
-        can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trim(tc.version)))
+        for tc_key, tc in try(scope.tc_sets, {}) : 
+        can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trimspace(tostring(tc.version))))
       ]
     ]))
     error_message = "shared_scopes[*].tc_sets[*].version must be a date in YYYY-MM-DD format."
@@ -150,8 +150,14 @@ variable "clients" {
     root_url      = string
     redirect_uris = list(string)
     web_origins   = list(string)
+    access_type   = optional(string, "PUBLIC")
+    standard_flow_enabled = optional(bool, false)
+    direct_access_grants_enabled = optional(bool, false)
+    pkce_code_challenge_method = optional(string, "S256")
+    login_theme = optional(string, "aap")
+    auto_approve = optional(bool, false)
 
-    scopes = map(object({
+    scopes = optional(map(object({
       description = optional(string, "")
 
       tc_sets = optional(map(object({
@@ -160,17 +166,17 @@ variable "clients" {
         title    = optional(string)
         url      = optional(string)
         template = optional(string)
-      })))
-    }))
+      })), {})
+    })), {})
 
-    default_scopes = list(string)
+    default_scopes = optional(list(string), [])
 
-    mappers = list(object({
+    mappers = optional(list(object({
       name            = string
       scope           = string
       protocol_mapper = string
       config          = map(string)
-    }))
+    })), [])
   }))
 
   description = "Map of client definitions used to create client-specific scopes and mappers."
@@ -219,7 +225,7 @@ variable "clients" {
       for client_key, c in var.clients : [
         for scope_key, scope in c.scopes : [
           for tc_key, tc in try(scope.tc_sets, {}) :
-          can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trim(tc.version)))
+          can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trimspace(tostring(tc.version))))
         ]
       ]
     ]))
