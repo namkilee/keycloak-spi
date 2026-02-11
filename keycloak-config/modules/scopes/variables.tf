@@ -133,10 +133,10 @@ variable "shared_scopes" {
     condition = alltrue(flatten([
       for scope_key, scope in var.shared_scopes : [
         for tc_key, tc in try(scope.tc_sets, {}) :
-        length(trim(tc.version)) > 0
+        can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trim(tc.version)))
       ]
     ]))
-    error_message = "shared_scopes[*].tc_sets[*].version must be non-empty."
+    error_message = "shared_scopes[*].tc_sets[*].version must be a date in YYYY-MM-DD format."
   }
 }
 
@@ -219,11 +219,11 @@ variable "clients" {
       for client_key, c in var.clients : [
         for scope_key, scope in c.scopes : [
           for tc_key, tc in try(scope.tc_sets, {}) :
-          length(trim(tc.version)) > 0
+          can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trim(tc.version)))
         ]
       ]
     ]))
-    error_message = "clients[*].scopes[*].tc_sets[*].version must be non-empty."
+    error_message = "clients[*].scopes[*].tc_sets[*].version must be a date in YYYY-MM-DD format."
   }
 
   validation {
