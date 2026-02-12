@@ -167,49 +167,48 @@ resource "null_resource" "tc_attributes_sync_all" {
   }
 
   provisioner "local-exec" {
-  interpreter = ["/bin/bash", "-lc"]
-  command = <<-EOT
-    set -Eeuo pipefail
+    interpreter = ["/bin/bash", "-lc"]
+    command = <<-EOT
+      set -Eeuo pipefail
 
-    # ✅ 고정 경로 로그: 콘솔 출력이 suppress돼도 파일은 남는다
-    LOG_DIR="${path.root}/.tf-logs"
-    mkdir -p "$LOG_DIR"
-    LOG="$LOG_DIR/tc_sync_all_${var.realm_id}.log"
+      LOG_DIR="${path.root}/.tf-logs"
+      mkdir -p "$LOG_DIR"
+      chmod 700 "$LOG_DIR"
+      LOG="$LOG_DIR/tc_sync_all_${var.realm_id}.log"
 
-    PAYLOAD="$(mktemp -t tc_sync_payload.XXXXXX.json)"
-    SECRET_FILE="$(mktemp -t kc_secret.XXXXXX)"
-    chmod 700 "$LOG_DIR"
-    chmod 600 "$SECRET_FILE"
-
-    cat > "$PAYLOAD" <<'JSON'
+      PAYLOAD="$(mktemp -t tc_sync_payload.XXXXXX.json)"
+      cat > "$PAYLOAD" <<'JSON'
 ${jsonencode(local.tc_sync_payload)}
 JSON
 
-    printf "%s" "${KEYCLOAK_CLIENT_SECRET}" > "$SECRET_FILE"
+      export TC_SYNC_PAYLOAD_FILE="$PAYLOAD"
 
-    export TC_SYNC_PAYLOAD_FILE="$PAYLOAD"
-    export KEYCLOAK_CLIENT_SECRET_FILE="$SECRET_FILE"
+      /bin/bash "${path.module}/scripts/tc/tc_sync_scopes.sh" >"$LOG" 2>&1 || {
+        rc=$?
+        echo "[TF] tc sync failed; see log: $LOG" >&2
+        exit "$rc"
+      }
 
-    /bin/bash "${path.module}/scripts/tc/tc_sync_scopes.sh" >"$LOG" 2>&1 || {
-      rc=$?
-      echo "[TF] tc sync failed; see log: $LOG" >&2
-      exit "$rc"
+      echo "[TF] tc sync ok; see log: $LOG" >&2
+    EOT
+
+    environment = {
+      KCADM_EXEC_MODE         = var.kcadm_exec_mode
+      KCADM_PATH              = var.keycloak_kcadm_path
+      KEYCLOAK_CONTAINER_NAME = var.keycloak_container_name
+      KEYCLOAK_NAMESPACE      = var.keycloak_namespace
+      KEYCLOAK_POD_SELECTOR   = var.keycloak_pod_selector
+
+      KEYCLOAK_URL        = var.keycloak_url
+      KEYCLOAK_AUTH_REALM = var.keycloak_auth_realm
+      KEYCLOAK_CLIENT_ID  = var.keycloak_client_id
+
+      # k8s에서 읽을 secret (bootstrap이 이 이름으로 생성해둠)
+      KEYCLOAK_SECRET_NAME = "kc-${var.realm_id}-client-credentials"
+      KEYCLOAK_SECRET_KEY  = "client-secret"
+
+      # docker(dev)에서 읽을 로컬 파일 (bootstrap이 이 파일을 생성해둠)
+      KEYCLOAK_LOCAL_SECRET_FILE = "${path.root}/.secrets/kc_${var.realm_id}_client_secret"
     }
-
-    echo "[TF] tc sync ok; see log: $LOG" >&2
-  EOT
-
-  environment = {
-    KCADM_EXEC_MODE         = var.kcadm_exec_mode
-    KCADM_PATH              = var.keycloak_kcadm_path
-    KEYCLOAK_CONTAINER_NAME = var.keycloak_container_name
-    KEYCLOAK_NAMESPACE      = var.keycloak_namespace
-    KEYCLOAK_POD_SELECTOR   = var.keycloak_pod_selector
-
-    KEYCLOAK_URL        = var.keycloak_url
-    KEYCLOAK_AUTH_REALM = var.keycloak_auth_realm
-    KEYCLOAK_CLIENT_ID  = var.keycloak_client_id
-
-    KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
   }
 }

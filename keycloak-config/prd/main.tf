@@ -64,3 +64,17 @@ module "realm_clients" {
   saml_principal_attribute = var.saml_principal_attribute
   saml_idp_mappers         = var.saml_idp_mappers
 }
+
+resource "kubernetes_secret" "kc_terraform_client_secret" {
+  metadata {
+    name      = data.terraform_remote_state.bootstrap.outputs.terraform_client_secret_name
+    namespace = var.keycloak_namespace
+  }
+
+  string_data = {
+    (data.terraform_remote_state.bootstrap.outputs.terraform_client_secret_key) =
+      data.terraform_remote_state.bootstrap.outputs.terraform_client_secret
+  }
+
+  type = "Opaque"
+}

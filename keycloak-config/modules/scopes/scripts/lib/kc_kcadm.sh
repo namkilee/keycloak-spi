@@ -27,8 +27,8 @@ kc_exec() {
       : "${KEYCLOAK_POD_SELECTOR:?KEYCLOAK_POD_SELECTOR is required for kubectl mode}"
       need_cmd kubectl
       local pod
-      pod="$(kubectl -n "$KEYCLOAK_NAMESPACE" get pod -l "$KEYCLOAK_POD_SELECTOR" -o jsonpath='{.items[0].metadata.name}')"
-      [[ -n "$pod" ]] || die "No pod found with selector: $KEYCLOAK_POD_SELECTOR"
+      pod="$(kubectl -n "$KEYCLOAK_NAMESPACE" get pod -l "$KEYCLOAK_POD_SELECTOR" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+      [[ -n "$pod" ]] || die "No pod found with selector: $KEYCLOAK_POD_SELECTOR in ns=$KEYCLOAK_NAMESPACE"
       kubectl -n "$KEYCLOAK_NAMESPACE" exec -i "$pod" -- \
         env HOME="$KCADM_HOME_DIR" \
         /bin/sh -lc 'set -e; mkdir -p "$HOME"; exec "$0" "$@"' \
@@ -61,14 +61,12 @@ with_retry() {
   done
 }
 
-# ✅ secret은 env(KEYCLOAK_CLIENT_SECRET) 대신 파일(KEYCLOAK_CLIENT_SECRET_FILE)을 우선 사용
 _read_client_secret() {
   if [[ -n "${KEYCLOAK_CLIENT_SECRET_FILE:-}" ]]; then
     [[ -f "$KEYCLOAK_CLIENT_SECRET_FILE" ]] || die "KEYCLOAK_CLIENT_SECRET_FILE not found: $KEYCLOAK_CLIENT_SECRET_FILE"
     cat "$KEYCLOAK_CLIENT_SECRET_FILE"
     return 0
   fi
-  # fallback (가능하면 사용 안 하는 걸 추천)
   echo -n "${KEYCLOAK_CLIENT_SECRET:-}"
 }
 

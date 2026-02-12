@@ -372,3 +372,14 @@ variable "saml_idp_mappers" {
     error_message = "saml_idp_mappers entries must provide required fields for their type."
   }
 }
+
+variable "keycloak_secret_name" {
+  type        = string
+  description = "Kubernetes Secret name that contains Keycloak client secret."
+}
+
+variable "keycloak_secret_key" {
+  type        = string
+  description = "Key name inside Secret.data (e.g. client-secret)."
+  default     = "client-secret"
+}

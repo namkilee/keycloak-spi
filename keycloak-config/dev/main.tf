@@ -21,6 +21,8 @@ module "realm_clients" {
   keycloak_client_secret  = coalesce(var.keycloak_client_secret, data.terraform_remote_state.bootstrap.outputs.terraform_client_secret)
   kcadm_exec_mode         = "docker"
   keycloak_container_name = var.keycloak_container_name
+  keycloak_secret_key     = var.keycloak_secret_key
+  keycloak_secret_name    = var.keycloak_secret_name
 
   saml_idp_alias           = var.saml_idp_alias
   saml_idp_display_name    = var.saml_idp_display_name
@@ -33,4 +35,12 @@ module "realm_clients" {
   saml_principal_type      = var.saml_principal_type
   saml_principal_attribute = var.saml_principal_attribute
   saml_idp_mappers         = var.saml_idp_mappers
+}
+
+# dev(docker)에서만: bootstrap에서 받은 secret을 로컬 파일로 저장
+resource "local_sensitive_file" "kc_terraform_client_secret" {
+  filename             = "${path.root}/.secrets/kc_${var.realm_id}_client_secret"
+  content              = data.terraform_remote_state.bootstrap.outputs.terraform_client_secret
+  file_permission      = "0600"
+  directory_permission = "0700"
 }

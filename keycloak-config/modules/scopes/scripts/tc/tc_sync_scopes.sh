@@ -9,6 +9,42 @@ need_cmd jq
 
 : "${TC_SYNC_PAYLOAD_FILE:?}"
 
+# ---------------------------
+# Runtime secret fetch (NO terraform sensitive)
+# ---------------------------
+fetch_kc_secret_to_file() {
+  local out="$1"
+  : "${KCADM_EXEC_MODE:?}"
+
+  case "${KCADM_EXEC_MODE}" in
+    kubectl)
+      : "${KEYCLOAK_NAMESPACE:?}"
+      : "${KEYCLOAK_SECRET_NAME:?}"
+      : "${KEYCLOAK_SECRET_KEY:=client-secret}"
+      need_cmd kubectl
+
+      kubectl -n "${KEYCLOAK_NAMESPACE}" get secret "${KEYCLOAK_SECRET_NAME}" \
+        -o "jsonpath={.data.${KEYCLOAK_SECRET_KEY}}" | base64 -d > "${out}"
+      ;;
+    docker)
+      : "${KEYCLOAK_LOCAL_SECRET_FILE:?KEYCLOAK_LOCAL_SECRET_FILE is required for docker mode}"
+      [[ -f "${KEYCLOAK_LOCAL_SECRET_FILE}" ]] || die "local secret file not found: ${KEYCLOAK_LOCAL_SECRET_FILE}"
+      cat "${KEYCLOAK_LOCAL_SECRET_FILE}" > "${out}"
+      ;;
+    *)
+      die "Unknown KCADM_EXEC_MODE=${KCADM_EXEC_MODE} (expected docker|kubectl)"
+      ;;
+  esac
+
+  [[ -s "${out}" ]] || die "Fetched client secret is empty (mode=${KCADM_EXEC_MODE})"
+}
+
+SECRET_FILE="$(mktemp -t kc_secret.XXXXXX)"
+chmod 600 "${SECRET_FILE}"
+fetch_kc_secret_to_file "${SECRET_FILE}"
+export KEYCLOAK_CLIENT_SECRET_FILE="${SECRET_FILE}"
+# ---------------------------
+
 PLAN_JSON="$(jq -c '
   . as $p
   | {
@@ -54,8 +90,6 @@ update_scope_from_file() {
   kc_exec update "realms/$REALM_ID/client-scopes/$scope_id" -f "$file" >/dev/null
 }
 
-# 핵심: "부분 JSON({attributes:{...}})"이 아니라
-#          "현재 representation 전체"에서 attributes만 교체한 JSON을 만들어 PUT 한다.
 build_update_representation() {
   local cur="$1" desired_tc_sets="$2" out="$3"
 
@@ -128,7 +162,6 @@ verify_scope_has_prefix_keys() {
     return 0
   fi
 
-  # 디버그: attributes 일부 출력(너무 길면 불편하니 prefix 근처만)
   log "ERROR: verify failed. No keys with prefix=${TC_PREFIX_ROOT}. scope_id=$scope_id"
   jq -r --arg p "$TC_PREFIX_ROOT" '
     (.attributes // {}) | to_entries
@@ -166,7 +199,6 @@ jq -r '.scopes[].scope_id' <<<"$PLAN_JSON" | while read -r sid; do
     .scopes[] | select(.scope_id == $sid) | (.tc_sets // {})
   ' <<<"$PLAN_JSON")"
 
-  # representation 전체를 만들어 update
   build_update_representation "$cur" "$desired_tc_sets" "$upd"
   print_diff "$cur" "$upd" "$sid" >&2
 

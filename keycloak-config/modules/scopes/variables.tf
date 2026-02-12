@@ -251,3 +251,14 @@ variable "clients" {
     error_message = "clients[*].mappers[*].scope must reference an existing scope key in clients[*].scopes."
   }
 }
+
+variable "keycloak_secret_name" {
+  type        = string
+  description = "Kubernetes Secret name that contains Keycloak client secret."
+}
+
+variable "keycloak_secret_key" {
+  type        = string
+  description = "Key name inside Secret.data (e.g. client-secret)."
+  default     = "client-secret"
+}
