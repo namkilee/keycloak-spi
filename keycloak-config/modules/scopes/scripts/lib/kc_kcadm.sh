@@ -6,17 +6,10 @@ die() { log "FATAL: $*"; exit 1; }
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
 
-# Required env:
-#   KCADM_EXEC_MODE=docker|kubectl
-#   KCADM_PATH=/opt/bitnami/keycloak/bin/kcadm.sh
-# Optional env:
-#   KEYCLOAK_CONTAINER_NAME=...
-#   KEYCLOAK_NAMESPACE=...
-#   KEYCLOAK_POD_SELECTOR=...
-#
-# Internal: force container-side HOME to avoid kcadm.config lock issues
-: "${KCADM_EXEC_MODE:?}"
-: "${KCADM_PATH:?}"
+: "${KCADM_EXEC_MODE:?}"   # docker|kubectl
+: "${KCADM_PATH:?}"        # e.g. /opt/bitnami/keycloak/bin/kcadm.sh
+
+# 컨테이너/파드 내부 HOME (host mktemp 경로 사용 금지)
 KCADM_HOME_DIR="${KCADM_HOME_DIR:-/tmp/kcadm_home.$RANDOM.$RANDOM}"
 
 kc_exec() {
@@ -68,11 +61,25 @@ with_retry() {
   done
 }
 
+# ✅ secret은 env(KEYCLOAK_CLIENT_SECRET) 대신 파일(KEYCLOAK_CLIENT_SECRET_FILE)을 우선 사용
+_read_client_secret() {
+  if [[ -n "${KEYCLOAK_CLIENT_SECRET_FILE:-}" ]]; then
+    [[ -f "$KEYCLOAK_CLIENT_SECRET_FILE" ]] || die "KEYCLOAK_CLIENT_SECRET_FILE not found: $KEYCLOAK_CLIENT_SECRET_FILE"
+    cat "$KEYCLOAK_CLIENT_SECRET_FILE"
+    return 0
+  fi
+  # fallback (가능하면 사용 안 하는 걸 추천)
+  echo -n "${KEYCLOAK_CLIENT_SECRET:-}"
+}
+
 kc_login_client_credentials() {
   : "${KEYCLOAK_URL:?}"
   : "${KEYCLOAK_AUTH_REALM:?}"
   : "${KEYCLOAK_CLIENT_ID:?}"
-  : "${KEYCLOAK_CLIENT_SECRET:?}"
+
+  local secret
+  secret="$(_read_client_secret)"
+  [[ -n "$secret" ]] || die "Missing client secret (set KEYCLOAK_CLIENT_SECRET_FILE or KEYCLOAK_CLIENT_SECRET)"
 
   local retries="${1:-5}"
   local backoff="${2:-400}"
@@ -82,5 +89,5 @@ kc_login_client_credentials() {
     --server "$KEYCLOAK_URL" \
     --realm "$KEYCLOAK_AUTH_REALM" \
     --client "$KEYCLOAK_CLIENT_ID" \
-    --secret "$KEYCLOAK_CLIENT_SECRET" >/dev/null
+    --secret "$secret" >/dev/null
 }

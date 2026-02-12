@@ -167,55 +167,49 @@ resource "null_resource" "tc_attributes_sync_all" {
   }
 
   provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-lc"]
-    command = <<-EOT
-      set -Eeuo pipefail
+  interpreter = ["/bin/bash", "-lc"]
+  command = <<-EOT
+    set -Eeuo pipefail
 
-      LOG="$(mktemp -t tc_sync_all.XXXXXX.log)"
-      PAYLOAD="$(mktemp -t tc_sync_payload.XXXXXX.json)"
-      echo "[TF] log file: $LOG" >&2
-      echo "[TF] payload file: $PAYLOAD" >&2
+    # ✅ 고정 경로 로그: 콘솔 출력이 suppress돼도 파일은 남는다
+    LOG_DIR="${path.root}/.tf-logs"
+    mkdir -p "$LOG_DIR"
+    LOG="$LOG_DIR/tc_sync_all_${var.realm_id}.log"
 
-      cat > "$PAYLOAD" <<'JSON'
-    ${jsonencode(local.tc_sync_payload)}
-    JSON
+    PAYLOAD="$(mktemp -t tc_sync_payload.XXXXXX.json)"
+    SECRET_FILE="$(mktemp -t kc_secret.XXXXXX)"
+    chmod 700 "$LOG_DIR"
+    chmod 600 "$SECRET_FILE"
 
-      # payload sanity
-      echo "[TF] payload summary:" >&2
-      jq -r '
-        "realm_id=" + .realm_id,
-        "sync_mode=" + (.sync_mode // "replace"),
-        "allow_delete=" + ((.allow_delete // true)|tostring),
-        "tc_prefix_root=" + (.tc_prefix_root // "tc"),
-        "dry_run=" + ((.dry_run // false)|tostring),
-        "client_scopes=" + ((.client_scopes // [])|length|tostring),
-        "shared_scopes=" + ((.shared_scopes // [])|length|tostring)
-      ' "$PAYLOAD" >&2
+    cat > "$PAYLOAD" <<'JSON'
+${jsonencode(local.tc_sync_payload)}
+JSON
 
-      export TC_SYNC_PAYLOAD_FILE="$PAYLOAD"
+    printf "%s" "${KEYCLOAK_CLIENT_SECRET}" > "$SECRET_FILE"
 
-      /bin/bash -x "${path.module}/scripts/tc/tc_sync_scopes.sh" 2>&1 | tee "$LOG"
-    EOT
+    export TC_SYNC_PAYLOAD_FILE="$PAYLOAD"
+    export KEYCLOAK_CLIENT_SECRET_FILE="$SECRET_FILE"
 
-    environment = {
-      KCADM_EXEC_MODE         = var.kcadm_exec_mode
-      KCADM_PATH              = var.keycloak_kcadm_path
-      KEYCLOAK_CONTAINER_NAME = var.keycloak_container_name
-      KEYCLOAK_NAMESPACE      = var.keycloak_namespace
-      KEYCLOAK_POD_SELECTOR   = var.keycloak_pod_selector
-
-      KEYCLOAK_URL           = var.keycloak_url
-      KEYCLOAK_AUTH_REALM    = var.keycloak_auth_realm
-      KEYCLOAK_CLIENT_ID     = var.keycloak_client_id
-      KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
-
+    /bin/bash "${path.module}/scripts/tc/tc_sync_scopes.sh" >"$LOG" 2>&1 || {
+      rc=$?
+      echo "[TF] tc sync failed; see log: $LOG" >&2
+      exit "$rc"
     }
-  }
 
-  depends_on = [
-    keycloak_openid_client_scope.scopes,
-    keycloak_openid_client_scope.shared_scopes,
-    keycloak_generic_protocol_mapper.value_transform,
-    keycloak_generic_protocol_mapper.shared,
-  ]
+    echo "[TF] tc sync ok; see log: $LOG" >&2
+  EOT
+
+  environment = {
+    KCADM_EXEC_MODE         = var.kcadm_exec_mode
+    KCADM_PATH              = var.keycloak_kcadm_path
+    KEYCLOAK_CONTAINER_NAME = var.keycloak_container_name
+    KEYCLOAK_NAMESPACE      = var.keycloak_namespace
+    KEYCLOAK_POD_SELECTOR   = var.keycloak_pod_selector
+
+    KEYCLOAK_URL        = var.keycloak_url
+    KEYCLOAK_AUTH_REALM = var.keycloak_auth_realm
+    KEYCLOAK_CLIENT_ID  = var.keycloak_client_id
+
+    KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
+  }
 }

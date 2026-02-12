@@ -3,12 +3,11 @@ set -Eeuo pipefail
 
 # shellcheck source=../lib/kc_kcadm.sh
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# keycloak-config/scripts/tc -> keycloak-config/scripts/lib
 source "$SCRIPT_DIR/../lib/kc_kcadm.sh"
 
 need_cmd jq
 
-: "${TC_SYNC_PAYLOAD_FILE:?}"   # payload json path
+: "${TC_SYNC_PAYLOAD_FILE:?}"
 
 PLAN_JSON="$(jq -c '
   . as $p
@@ -41,6 +40,7 @@ MAX_RETRIES="$(jq -r '.max_retries' <<<"$PLAN_JSON")"
 BACKOFF_MS="$(jq -r '.backoff_ms' <<<"$PLAN_JSON")"
 
 log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TC_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS"
+log "Scopes: total=$(jq -r '.scopes|length' <<<"$PLAN_JSON")"
 
 kc_login_client_credentials 5 400
 
@@ -78,8 +78,7 @@ build_update() {
       | add
       | from_entries;
 
-    .attributes as $cur_attrs
-    | ($cur_attrs // {}) as $a
+    (.attributes // {}) as $a
     | (desired_tc_map) as $want
     | (
         if $mode == "replace" then
@@ -136,13 +135,13 @@ jq -r '.scopes[].scope_id' <<<"$PLAN_JSON" | while read -r sid; do
     continue
   fi
 
+  log "UPDATING scope_id=$sid"
   if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" update_scope_from_file "$sid" "$upd"; then
     log "ERROR: update failed scope_id=$sid"
     rc=1
     continue
   fi
-
-  log "OK: updated scope_id=$sid"
+  log "UPDATED scope_id=$sid"
 done
 
 exit "$rc"
