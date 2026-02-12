@@ -174,25 +174,27 @@ resource "null_resource" "tc_attributes_sync_all" {
       LOG="$(mktemp -t tc_sync_all.XXXXXX.log)"
       PAYLOAD="$(mktemp -t tc_sync_payload.XXXXXX.json)"
       echo "[TF] log file: $LOG" >&2
+      echo "[TF] payload file: $PAYLOAD" >&2
 
       cat > "$PAYLOAD" <<'JSON'
-${jsonencode(local.tc_sync_payload)}
-JSON
+    ${jsonencode(local.tc_sync_payload)}
+    JSON
+
+      # payload sanity
+      echo "[TF] payload summary:" >&2
+      jq -r '
+        "realm_id=" + .realm_id,
+        "sync_mode=" + (.sync_mode // "replace"),
+        "allow_delete=" + ((.allow_delete // true)|tostring),
+        "tc_prefix_root=" + (.tc_prefix_root // "tc"),
+        "dry_run=" + ((.dry_run // false)|tostring),
+        "client_scopes=" + ((.client_scopes // [])|length|tostring),
+        "shared_scopes=" + ((.shared_scopes // [])|length|tostring)
+      ' "$PAYLOAD" >&2
 
       export TC_SYNC_PAYLOAD_FILE="$PAYLOAD"
 
-      /bin/bash "${path.module}/scripts/tc/tc_sync_scopes.sh" >"$LOG" 2>&1 || {
-        rc=$?
-        echo "[TF] ===== script failed (rc=$rc) =====" >&2
-        echo "[TF] ----- head(200) -----" >&2
-        sed -n '1,200p' "$LOG" >&2 || true
-        echo "[TF] ----- tail(200) -----" >&2
-        tail -n 200 "$LOG" >&2 || true
-        echo "[TF] =============================" >&2
-        exit "$rc"
-      }
-
-      cat "$LOG" >&2
+      /bin/bash -x "${path.module}/scripts/tc/tc_sync_scopes.sh" 2>&1 | tee "$LOG"
     EOT
 
     environment = {

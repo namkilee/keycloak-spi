@@ -151,7 +151,7 @@ variable "clients" {
     redirect_uris = list(string)
     web_origins   = list(string)
     access_type   = optional(string, "PUBLIC")
-    standard_flow_enabled = optional(bool, false)
+    standard_flow_enabled = optional(bool, true)
     direct_access_grants_enabled = optional(bool, false)
     pkce_code_challenge_method = optional(string, "S256")
     login_theme = optional(string, "aap")
