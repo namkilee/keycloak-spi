@@ -54,22 +54,25 @@ locals {
     for item in flatten([
       for client_key, client in var.clients : [
         for scope_key, scope in client.scopes : {
-          key       = "${client_key}.${scope_key}"
-          scope_key = scope_key
-          tc_sets   = try(scope.tc_sets, null)
+          key         = "${client_key}.${scope_key}"
+          scope_key   = scope_key
+          tc_sets     = try(scope.tc_sets, null)
+          tc_priority = tostring(try(scope.tc_priority, 100))
         }
       ]
     ]) : item.key => item
     if item.tc_sets != null
   }
 
+
   shared_scope_tc_payloads = {
     for item in flatten([
       for scope_key, scope in var.shared_scopes : [
         {
-          key       = scope_key
-          scope_key = scope_key
-          tc_sets   = try(scope.tc_sets, null)
+          key         = scope_key
+          scope_key   = scope_key
+          tc_sets     = try(scope.tc_sets, null)
+          tc_priority = tostring(try(scope.tc_priority, 10))
         }
       ]
     ]) : item.key => item
@@ -125,19 +128,21 @@ resource "keycloak_generic_protocol_mapper" "shared" {
 locals {
   tc_sync_client_scopes = [
     for k, v in local.scope_tc_payloads : {
-      scope_key  = v.scope_key
-      scope_id   = keycloak_openid_client_scope.scopes[k].id
-      scope_name = keycloak_openid_client_scope.scopes[k].name
-      tc_sets    = v.tc_sets
+      scope_key    = v.scope_key
+      scope_id     = keycloak_openid_client_scope.scopes[k].id
+      scope_name   = keycloak_openid_client_scope.scopes[k].name
+      tc_sets      = v.tc_sets
+      tc_priority  = v.tc_priority
     }
   ]
 
   tc_sync_shared_scopes = [
     for k, v in local.shared_scope_tc_payloads : {
-      scope_key  = v.scope_key
-      scope_id   = keycloak_openid_client_scope.shared_scopes[k].id
-      scope_name = keycloak_openid_client_scope.shared_scopes[k].name
-      tc_sets    = v.tc_sets
+      scope_key    = v.scope_key
+      scope_id     = keycloak_openid_client_scope.shared_scopes[k].id
+      scope_name   = keycloak_openid_client_scope.shared_scopes[k].name
+      tc_sets      = v.tc_sets
+      tc_priority  = v.tc_priority
     }
   ]
 

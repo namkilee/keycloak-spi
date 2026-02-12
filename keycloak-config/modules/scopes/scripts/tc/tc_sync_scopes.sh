@@ -125,11 +125,12 @@ PLAN_JSON="$(
             + (($p.shared_scopes // []) | as_array)
           )
           | map(. as $s | {
-              scope_id:   ($s.scope_id // $s.id // ""),
-              scope_name: ($s.scope_name // ""),
-              scope_key:  ($s.scope_key // ""),
-              tc_sets:    (($s.tc_sets // {}) | as_object)
-            })
+            scope_id:    ($s.scope_id // $s.id // ""),
+            scope_name:  ($s.scope_name // ""),
+            scope_key:   ($s.scope_key // ""),
+            tc_sets:     (($s.tc_sets // {}) | as_object),
+            tc_priority: ($s.tc_priority // "0" | tostring)
+          })
           | map(select(.scope_id != ""))
           | map(
               if ($tc_empty_means_delete == "true") then
@@ -180,7 +181,7 @@ update_scope_from_file() {
 }
 
 build_update_representation() {
-  local cur_file="$1" desired_tc_sets_json="$2" out_file="$3" sid="$4"
+  local cur_file="$1" desired_tc_sets_json="$2" tc_priority="$3" out_file="$4" sid="$5"
 
   dump_json_pretty_from_file "$cur_file" "cur.${sid}.json"
   dump_json_pretty_from_text "desired.${sid}.json" "$desired_tc_sets_json"
@@ -214,15 +215,16 @@ build_update_representation() {
     . as $cur
     | (.attributes // {} | as_object) as $a
     | desired_tc_map($tc_sets) as $want
+    | ($want + { "tc_priority": ($tc_priority|tostring) }) as $want2
     | (
         if $mode == "replace" then
           (if $allow_delete == "true"
             then ($a | with_entries(select(.key | startswith($prefix + ".") | not)))
             else $a
           end)
-          + $want
+          + $want2
         else
-          $a + $want
+          $a + $want2
         end
       ) as $new_attrs
     | ($cur | .attributes = $new_attrs)
@@ -236,6 +238,7 @@ build_update_representation() {
       --arg mode "$SYNC_MODE" \
       --arg prefix "$TC_PREFIX_ROOT" \
       --arg allow_delete "$ALLOW_DELETE" \
+      --arg tc_priority "$tc_priority" \
       --argjson tc_sets "$safe_tc_sets" \
       "$program" "$cur_file" \
       >"$out_file" 2>"$DUMP_DIR/jq.build_update_representation.${sid}.err"
@@ -334,7 +337,18 @@ for sid in "${SCOPE_IDS[@]}"; do
     ' --arg sid "$sid" <<<"$PLAN_JSON" | jq -c '.'
   )"
 
-  build_update_representation "$cur" "$desired_tc_sets" "$upd" "$sid"
+  desired_tc_priority="$(
+  run_jq_stdin "desired_tc_priority_select.${sid}" '
+    def as_array: if type=="array" then . else [] end;
+
+    (.scopes // [] | as_array)
+    | map(select(.scope_id == $sid) | (.tc_priority // "0" | tostring))
+    | .[0] // "0"
+  ' --arg sid "$sid" <<<"$PLAN_JSON" | jq -r '.'
+)"
+
+
+  build_update_representation "$cur" "$desired_tc_sets" "$desired_tc_priority" "$upd" "$sid"
   print_diff "$cur" "$upd" "$sid" >&2
 
   if [[ "$DRY_RUN" == "true" ]]; then

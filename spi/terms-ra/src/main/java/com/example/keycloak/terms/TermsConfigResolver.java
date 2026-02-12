@@ -2,28 +2,37 @@ package com.example.keycloak.terms;
 
 import com.example.keycloak.terms.TermsModels.Term;
 import com.example.keycloak.terms.TermsModels.TermsBundle;
-import com.fasterxml.jackson.databind.JavaType;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.ClientScopeModel;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Resolve terms from attached client scopes only.
+ * Resolve terms from attached client scopes using attributes produced by tc_sync:
  *
- * - Each terms scope must have attribute: tc.terms = JSON array of Term
- * - Merge rule:
- *   1) shared terms scopes first (name starts with "shared-terms-")
- *   2) client-specific terms scopes override shared (any non-shared terms scope)
- * - Duplicates in the same layer => FAIL (configuration error)
+ *   tc.<termKey>.required = "true|false"
+ *   tc.<termKey>.version  = "<string>"
+ *   tc.<termKey>.title    = "<string>" (optional)
+ *   tc.<termKey>.url      = "<string>" (optional)
+ *   tc.<termKey>.template = "<string>" (optional; currently ignored unless model extended)
+ *
+ * Scope priority:
+ *   scope attribute "tc_priority" (string int). Higher wins.
+ *
+ * Merge:
+ *   - Higher priority overrides lower priority
+ *   - Same priority duplicate termKey => FAIL (configuration error)
  */
 public final class TermsConfigResolver {
 
-  public static final String ATTR_TERMS = "tc.terms";
-  private static final String SHARED_PREFIX = "shared-terms-";
+  private static final String PREFIX_ROOT = "tc";
+  private static final String ATTR_PRIORITY = "tc_priority";
 
-  private final ObjectMapper om = new ObjectMapper();
+  // tc.<termKey>.<field>
+  private static final Pattern KEY_PATTERN =
+      Pattern.compile("^" + Pattern.quote(PREFIX_ROOT) + "\\.([^.]+)\\.([^.]+)$");
 
   public TermsBundle resolve(ClientModel client) {
     // Collect attached scopes: default + optional
@@ -31,88 +40,128 @@ public final class TermsConfigResolver {
     allScopes.addAll(client.getClientScopes(true).values());
     allScopes.addAll(client.getClientScopes(false).values());
 
-    // Only scopes that define tc.terms
-    List<ClientScopeModel> termsScopes = allScopes.stream()
-        .filter(s -> {
-          String raw = s.getAttribute(ATTR_TERMS);
-          return raw != null && !raw.isBlank();
-        })
+    // Sort by priority desc, then name asc (deterministic)
+    List<ScopeWithPriority> ordered = allScopes.stream()
+        .map(s -> new ScopeWithPriority(s, parsePriority(s.getAttribute(ATTR_PRIORITY))))
+        .sorted(Comparator
+            .comparingInt(ScopeWithPriority::priority).reversed()
+            .thenComparing(x -> safe(x.scope().getName())))
         .toList();
 
-    // Split into shared vs client-specific (by name prefix; priority not used)
-    List<ClientScopeModel> shared = termsScopes.stream()
-        .filter(this::isSharedTermsScope)
-        .toList();
+    // termKey -> TermWithPriority
+    Map<String, TermWithPriority> merged = new LinkedHashMap<>();
 
-    List<ClientScopeModel> clientSpecific = termsScopes.stream()
-        .filter(s -> !isSharedTermsScope(s))
-        .toList();
+    for (ScopeWithPriority sp : ordered) {
+      ClientScopeModel scope = sp.scope();
+      int prio = sp.priority();
 
-    Map<String, Term> sharedMap = loadLayer(client, "shared", shared);
-    Map<String, Term> clientMap = loadLayer(client, "client", clientSpecific);
+      Map<String, String> attrs = safeAttrs(scope);
+      if (attrs.isEmpty()) continue;
 
-    // Merge: client overrides shared
-    Map<String, Term> merged = new LinkedHashMap<>(sharedMap);
-    merged.putAll(clientMap);
+      // termKey -> fields for this scope
+      Map<String, Map<String, String>> scopeTerms = new LinkedHashMap<>();
 
-    return new TermsBundle(List.copyOf(merged.values()));
-  }
+      for (var e : attrs.entrySet()) {
+        String k = e.getKey();
+        if (k == null) continue;
 
-  private boolean isSharedTermsScope(ClientScopeModel scope) {
-    String name = scope.getName();
-    return name != null && name.startsWith(SHARED_PREFIX);
-  }
+        Matcher m = KEY_PATTERN.matcher(k);
+        if (!m.matches()) continue;
 
-  private Map<String, Term> loadLayer(ClientModel client, String layer, List<ClientScopeModel> scopes) {
-    Map<String, Term> out = new LinkedHashMap<>();
+        String termKey = m.group(1);
+        String field = m.group(2);
+        if (termKey == null || termKey.isBlank()) continue;
+        if (field == null || field.isBlank()) continue;
 
-    for (ClientScopeModel scope : scopes) {
-      String raw = scope.getAttribute(ATTR_TERMS);
-      List<Term> terms = parseTerms(raw, scope, client);
+        scopeTerms.computeIfAbsent(termKey, __ -> new LinkedHashMap<>())
+            .put(field, e.getValue() == null ? "" : e.getValue());
+      }
 
-      for (Term t : terms) {
-        if (t.key() == null || t.key().isBlank()) {
-          throw new IllegalStateException(errPrefix(client, layer, scope) + "term.key is empty");
+      // Apply merge
+      for (var entry : scopeTerms.entrySet()) {
+        String termKey = entry.getKey();
+        Map<String, String> f = entry.getValue();
+
+        Term t = toTerm(termKey, f, client, scope);
+
+        TermWithPriority existing = merged.get(termKey);
+        if (existing == null) {
+          merged.put(termKey, new TermWithPriority(t, prio));
+          continue;
         }
-        if (t.version() == null || t.version().isBlank()) {
-          throw new IllegalStateException(errPrefix(client, layer, scope) + "term.version is empty for key=" + t.key());
-        }
 
-        Term prev = out.putIfAbsent(t.key(), normalize(t));
-        if (prev != null) {
-          // same layer duplicate => configuration error (fail closed)
+        if (existing.priority == prio) {
+          // same priority duplicate => ambiguous config => fail closed
           throw new IllegalStateException(
-              "Duplicate termKey '" + t.key() + "' within " + layer + " terms scopes " +
-                  "for client '" + client.getClientId() + "'. " +
-                  "Conflicting scope: '" + scope.getName() + "'."
+              "Duplicate termKey '" + termKey + "' at same tc_priority=" + prio +
+                  " for client '" + client.getClientId() + "'. " +
+                  "Conflicting scope: '" + safe(scope.getName()) + "'."
           );
+        }
+
+        // higher prio wins (we iterate from high to low, so normally we won't reach here),
+        // but keep it correct in case ordering changes.
+        if (prio > existing.priority) {
+          merged.put(termKey, new TermWithPriority(t, prio));
         }
       }
     }
-    return out;
+
+    // Return ordered by required desc then key asc (stable UI)
+    List<Term> terms = merged.values().stream()
+        .map(tp -> tp.term)
+        .sorted(Comparator.<Term>comparingBoolean(Term::required).reversed()
+            .thenComparing(Term::key))
+        .toList();
+
+    return new TermsBundle(List.copyOf(terms));
   }
 
-  private Term normalize(Term t) {
-    String title = (t.title() == null || t.title().isBlank()) ? t.key() : t.title();
-    String url = (t.url() == null) ? "" : t.url();
-    return new Term(t.key(), title, t.version(), url, t.required());
-  }
-
-  private List<Term> parseTerms(String raw, ClientScopeModel scope, ClientModel client) {
-    try {
-      JavaType type = om.getTypeFactory().constructCollectionType(List.class, Term.class);
-      List<Term> parsed = om.readValue(raw, type);
-      return parsed == null ? List.of() : parsed;
-    } catch (Exception e) {
+  private static Term toTerm(String termKey, Map<String, String> f, ClientModel client, ClientScopeModel scope) {
+    String version = trimToEmpty(f.get("version"));
+    if (version.isBlank()) {
       throw new IllegalStateException(
-          "Invalid tc.terms JSON in scope '" + scope.getName() + "' " +
-              "for client '" + client.getClientId() + "'.", e
+          "Invalid term (missing version) for key='" + termKey + "' " +
+              "in scope '" + safe(scope.getName()) + "' for client '" + client.getClientId() + "'."
       );
+    }
+
+    boolean required = "true".equalsIgnoreCase(trimToEmpty(f.get("required")));
+    String title = trimToEmpty(f.get("title"));
+    if (title.isBlank()) title = termKey;
+
+    String url = trimToEmpty(f.get("url"));
+    // template은 TermsModels.Term에 필드가 없어서 현재는 무시
+    return new Term(termKey, title, version, url, required);
+  }
+
+  private static Map<String, String> safeAttrs(ClientScopeModel scope) {
+    try {
+      Map<String, String> attrs = scope.getAttributes();
+      return attrs == null ? Map.of() : attrs;
+    } catch (Exception e) {
+      return Map.of();
     }
   }
 
-  private String errPrefix(ClientModel client, String layer, ClientScopeModel scope) {
-    return "Invalid term in " + layer + " scope '" + scope.getName() +
-        "' for client '" + client.getClientId() + "': ";
+  private static int parsePriority(String raw) {
+    if (raw == null || raw.isBlank()) return 0;
+    try { return Integer.parseInt(raw.trim()); }
+    catch (Exception e) { return 0; } // fail-safe: treat invalid as lowest
+  }
+
+  private static String trimToEmpty(String s) {
+    return s == null ? "" : s.trim();
+  }
+
+  private static String safe(String s) {
+    return s == null ? "" : s;
+  }
+
+  private record ScopeWithPriority(ClientScopeModel scope, int priority) {}
+  private static final class TermWithPriority {
+    final Term term;
+    final int priority;
+    TermWithPriority(Term term, int priority) { this.term = term; this.priority = priority; }
   }
 }
