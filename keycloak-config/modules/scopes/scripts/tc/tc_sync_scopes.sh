@@ -38,9 +38,9 @@ TC_PREFIX_ROOT="$(jq -r '.tc_prefix_root' <<<"$PLAN_JSON")"
 DRY_RUN="$(jq -r '.dry_run | if . then "true" else "false" end' <<<"$PLAN_JSON")"
 MAX_RETRIES="$(jq -r '.max_retries' <<<"$PLAN_JSON")"
 BACKOFF_MS="$(jq -r '.backoff_ms' <<<"$PLAN_JSON")"
+SCOPE_COUNT="$(jq -r '.scopes|length' <<<"$PLAN_JSON")"
 
-log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TC_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS"
-log "Scopes: total=$(jq -r '.scopes|length' <<<"$PLAN_JSON")"
+log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TC_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS scopes=$SCOPE_COUNT"
 
 kc_login_client_credentials 5 400
 
@@ -54,7 +54,9 @@ update_scope_from_file() {
   kc_exec update "realms/$REALM_ID/client-scopes/$scope_id" -f "$file" >/dev/null
 }
 
-build_update() {
+# 핵심: "부분 JSON({attributes:{...}})"이 아니라
+#          "현재 representation 전체"에서 attributes만 교체한 JSON을 만들어 PUT 한다.
+build_update_representation() {
   local cur="$1" desired_tc_sets="$2" out="$3"
 
   jq -c \
@@ -78,7 +80,8 @@ build_update() {
       | add
       | from_entries;
 
-    (.attributes // {}) as $a
+    . as $cur
+    | (.attributes // {}) as $a
     | (desired_tc_map) as $want
     | (
         if $mode == "replace" then
@@ -91,7 +94,7 @@ build_update() {
           $a + $want
         end
       ) as $new_attrs
-    | {attributes: $new_attrs}
+    | ($cur | .attributes = $new_attrs)
   ' "$cur" >"$out"
 }
 
@@ -107,7 +110,43 @@ print_diff() {
   ' "$cur" "$upd"
 }
 
+verify_scope_has_prefix_keys() {
+  local scope_id="$1"
+  local tmp
+  tmp="$(mktemp -t tc_verify.XXXXXX.json)"
+
+  if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" fetch_scope_json_to "$scope_id" "$tmp"; then
+    log "ERROR: verify fetch failed scope_id=$scope_id"
+    rm -f "$tmp" || true
+    return 1
+  fi
+
+  if jq -e --arg p "$TC_PREFIX_ROOT" '
+      (.attributes // {}) | keys | map(startswith($p + ".")) | any
+    ' "$tmp" >/dev/null; then
+    rm -f "$tmp" || true
+    return 0
+  fi
+
+  # 디버그: attributes 일부 출력(너무 길면 불편하니 prefix 근처만)
+  log "ERROR: verify failed. No keys with prefix=${TC_PREFIX_ROOT}. scope_id=$scope_id"
+  jq -r --arg p "$TC_PREFIX_ROOT" '
+    (.attributes // {}) | to_entries
+    | map(select(.key | startswith($p + ".")))
+    | .[:50]
+    | if length == 0 then "(no matching attributes)" else (map("\(.key)=\(.value)") | join("\n")) end
+  ' "$tmp" >&2 || true
+
+  rm -f "$tmp" || true
+  return 1
+}
+
 rc=0
+
+if [[ "$SCOPE_COUNT" -eq 0 ]]; then
+  log "No scopes in payload. Nothing to do."
+  exit 0
+fi
 
 jq -r '.scopes[].scope_id' <<<"$PLAN_JSON" | while read -r sid; do
   [[ -n "$sid" ]] || continue
@@ -127,7 +166,8 @@ jq -r '.scopes[].scope_id' <<<"$PLAN_JSON" | while read -r sid; do
     .scopes[] | select(.scope_id == $sid) | (.tc_sets // {})
   ' <<<"$PLAN_JSON")"
 
-  build_update "$cur" "$desired_tc_sets" "$upd"
+  # representation 전체를 만들어 update
+  build_update_representation "$cur" "$desired_tc_sets" "$upd"
   print_diff "$cur" "$upd" "$sid" >&2
 
   if [[ "$DRY_RUN" == "true" ]]; then
@@ -142,6 +182,11 @@ jq -r '.scopes[].scope_id' <<<"$PLAN_JSON" | while read -r sid; do
     continue
   fi
   log "UPDATED scope_id=$sid"
+
+  if ! verify_scope_has_prefix_keys "$sid"; then
+    rc=1
+    continue
+  fi
 done
 
 exit "$rc"
