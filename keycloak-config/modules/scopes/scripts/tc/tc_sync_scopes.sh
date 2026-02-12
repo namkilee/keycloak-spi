@@ -72,35 +72,31 @@ trap on_err ERR
 # jq runner (prints actionable error context)
 # ---------------------------
 run_jq_file() {
-  # run_jq_file <step_name> <jq_program> <input_file>
+  # run_jq_file <step_name> <jq_program> <input_file> [jq_args...]
   local step="$1" program="$2" in_file="$3"
+  shift 3
+  local jq_args=("$@")
+
   LAST_STEP="$step"
 
-  # jq program을 파일로 저장 (실패 시 바로 확인 가능)
   ensure_dump_dir
   local prog_file="$DUMP_DIR/jq.${step}.jq"
   printf '%s\n' "$program" > "$prog_file"
 
-  # debug면 입력도 저장
   if [[ "$JQ_DEBUG" == "1" ]]; then
     dump_json_pretty_from_file "$in_file" "in.${step}.json"
   fi
 
-  # 실행
   local out
-  if ! out="$(jq -c "$program" "$in_file" 2> "$DUMP_DIR/jq.${step}.err")"; then
+  if ! out="$(jq -c "${jq_args[@]}" "$program" "$in_file" 2> "$DUMP_DIR/jq.${step}.err")"; then
     echo "[FATAL] jq failed step=$step" >&2
     echo "[FATAL] jq program saved at: $prog_file" >&2
     echo "[FATAL] jq stderr:" >&2
     sed -n '1,120p' "$DUMP_DIR/jq.${step}.err" >&2 || true
-
-    # 입력 일부 출력(너무 크면 원인 파악용 헤더/테일)
     echo "[FATAL] input(head):" >&2
-    head -c 2000 "$in_file" >&2 || true
-    echo >&2
+    head -c 2000 "$in_file" >&2 || true; echo >&2
     echo "[FATAL] input(tail):" >&2
-    tail -c 2000 "$in_file" >&2 || true
-    echo >&2
+    tail -c 2000 "$in_file" >&2 || true; echo >&2
     return 1
   fi
 
@@ -108,8 +104,11 @@ run_jq_file() {
 }
 
 run_jq_stdin() {
-  # run_jq_stdin <step_name> <jq_program> <<< "$json"
+  # run_jq_stdin <step_name> <jq_program> [jq_args...]
   local step="$1" program="$2"
+  shift 2
+  local jq_args=("$@")
+
   LAST_STEP="$step"
 
   ensure_dump_dir
@@ -124,23 +123,21 @@ run_jq_stdin() {
   fi
 
   local out
-  if ! out="$(jq -c "$program" "$in_file" 2> "$DUMP_DIR/jq.${step}.err")"; then
+  if ! out="$(jq -c "${jq_args[@]}" "$program" "$in_file" 2> "$DUMP_DIR/jq.${step}.err")"; then
     echo "[FATAL] jq failed step=$step" >&2
     echo "[FATAL] jq program saved at: $prog_file" >&2
     echo "[FATAL] jq stderr:" >&2
     sed -n '1,120p' "$DUMP_DIR/jq.${step}.err" >&2 || true
-
     echo "[FATAL] input(head):" >&2
-    head -c 2000 "$in_file" >&2 || true
-    echo >&2
+    head -c 2000 "$in_file" >&2 || true; echo >&2
     echo "[FATAL] input(tail):" >&2
-    tail -c 2000 "$in_file" >&2 || true
-    echo >&2
+    tail -c 2000 "$in_file" >&2 || true; echo >&2
     return 1
   fi
 
   printf '%s\n' "$out"
 }
+
 
 # ---------------------------
 # Runtime secret fetch (NO terraform sensitive)
@@ -429,6 +426,7 @@ for sid in "${SCOPE_IDS[@]}"; do
       | .[0] // {}
     ' --arg sid "$sid" <<<"$PLAN_JSON" | jq -c '.'
   )"
+
 
   build_update_representation "$cur" "$desired_tc_sets" "$upd" "$sid"
 
