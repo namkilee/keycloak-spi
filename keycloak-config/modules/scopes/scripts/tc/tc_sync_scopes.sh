@@ -1,105 +1,59 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# shellcheck source=../lib/kc_kcadm.sh
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/kc_kcadm.sh"
 
 need_cmd jq
-
 : "${TC_SYNC_PAYLOAD_FILE:?}"
 
 # ---------------------------
 # Debug options
 # ---------------------------
-JQ_DEBUG="${JQ_DEBUG:-0}"                 # 1이면 jq step마다 입력/프로그램 덤프
-DUMP_DIR="${DUMP_DIR:-.tc_sync_debug}"    # 덤프 디렉토리
+JQ_DEBUG="${JQ_DEBUG:-0}"
+DUMP_DIR="${DUMP_DIR:-.tc_sync_debug}"
 LAST_STEP="init"
+
+# 정책 옵션: tc_sets가 비어있는 scope를 어떻게 처리할지
+TC_EMPTY_MEANS_DELETE="${TC_EMPTY_MEANS_DELETE:-false}"  # true|false
 
 ensure_dump_dir() { mkdir -p "$DUMP_DIR"; }
 
 dump_file_copy() { local src="$1" name="$2"; [[ -f "$src" ]] || return 0; ensure_dump_dir; cp -f "$src" "$DUMP_DIR/$name" 2>/dev/null || true; }
-dump_text() { local name="$1" text="$2"; ensure_dump_dir; printf '%s\n' "$text" > "$DUMP_DIR/$name" 2>/dev/null || true; }
-
-dump_json_pretty_from_file() {
-  local src="$1" name="$2"
-  [[ -f "$src" ]] || return 0
-  ensure_dump_dir
-  if jq '.' "$src" > "$DUMP_DIR/$name" 2>/dev/null; then :; else cp -f "$src" "$DUMP_DIR/$name.raw" 2>/dev/null || true; fi
-}
-
-dump_json_pretty_from_text() {
-  local name="$1" json="$2"
-  ensure_dump_dir
-  if printf '%s\n' "$json" | jq '.' > "$DUMP_DIR/$name" 2>/dev/null; then :; else printf '%s\n' "$json" > "$DUMP_DIR/$name.raw" 2>/dev/null || true; fi
-}
+dump_json_pretty_from_file() { local src="$1" name="$2"; [[ -f "$src" ]] || return 0; ensure_dump_dir; jq '.' "$src" > "$DUMP_DIR/$name" 2>/dev/null || cp -f "$src" "$DUMP_DIR/$name.raw" 2>/dev/null || true; }
+dump_json_pretty_from_text() { local name="$1" json="$2"; ensure_dump_dir; printf '%s\n' "$json" | jq '.' > "$DUMP_DIR/$name" 2>/dev/null || printf '%s\n' "$json" > "$DUMP_DIR/$name.raw" 2>/dev/null || true; }
 
 on_err() {
   local exit_code=$?
   echo "[FATAL] failed (exit=$exit_code) step=$LAST_STEP at line=${BASH_LINENO[0]} cmd=${BASH_COMMAND}" >&2
-  echo "[FATAL] debug dump dir: $DUMP_DIR" >&2
+  echo "[FATAL] dump dir: $DUMP_DIR" >&2
   dump_file_copy "$TC_SYNC_PAYLOAD_FILE" "payload.json.raw"
   dump_json_pretty_from_file "$TC_SYNC_PAYLOAD_FILE" "payload.json"
   exit "$exit_code"
 }
 trap on_err ERR
 
-# ---------------------------
-# jq runner (supports jq args like --arg/--argjson)
-# ---------------------------
+# jq runner (supports jq args)
 run_jq_file() {
-  # run_jq_file <step_name> <jq_program> <input_file> [jq_args...]
-  local step="$1" program="$2" in_file="$3"
-  shift 3
+  local step="$1" program="$2" in_file="$3"; shift 3
   local jq_args=("$@")
-
   LAST_STEP="$step"
   ensure_dump_dir
   printf '%s\n' "$program" > "$DUMP_DIR/jq.${step}.jq"
-
-  if [[ "$JQ_DEBUG" == "1" ]]; then
-    dump_json_pretty_from_file "$in_file" "in.${step}.json"
-  fi
-
-  local out
-  if ! out="$(jq -c "${jq_args[@]}" "$program" "$in_file" 2> "$DUMP_DIR/jq.${step}.err")"; then
-    echo "[FATAL] jq failed step=$step" >&2
-    echo "[FATAL] jq stderr:" >&2
-    sed -n '1,160p' "$DUMP_DIR/jq.${step}.err" >&2 || true
-    echo "[FATAL] input(head):" >&2
-    head -c 2000 "$in_file" >&2 || true; echo >&2
-    echo "[FATAL] input(tail):" >&2
-    tail -c 2000 "$in_file" >&2 || true; echo >&2
-    return 1
-  fi
-  printf '%s\n' "$out"
+  [[ "$JQ_DEBUG" == "1" ]] && dump_json_pretty_from_file "$in_file" "in.${step}.json"
+  jq -c "${jq_args[@]}" "$program" "$in_file" 2> "$DUMP_DIR/jq.${step}.err"
 }
 
 run_jq_stdin() {
-  # run_jq_stdin <step_name> <jq_program> [jq_args...]
-  local step="$1" program="$2"
-  shift 2
+  local step="$1" program="$2"; shift 2
   local jq_args=("$@")
-
   LAST_STEP="$step"
   ensure_dump_dir
   printf '%s\n' "$program" > "$DUMP_DIR/jq.${step}.jq"
-
   local in_file="$DUMP_DIR/in.${step}.raw.json"
   cat > "$in_file"
-
-  if [[ "$JQ_DEBUG" == "1" ]]; then
-    dump_json_pretty_from_file "$in_file" "in.${step}.json"
-  fi
-
-  local out
-  if ! out="$(jq -c "${jq_args[@]}" "$program" "$in_file" 2> "$DUMP_DIR/jq.${step}.err")"; then
-    echo "[FATAL] jq failed step=$step" >&2
-    echo "[FATAL] jq stderr:" >&2
-    sed -n '1,160p' "$DUMP_DIR/jq.${step}.err" >&2 || true
-    return 1
-  fi
-  printf '%s\n' "$out"
+  [[ "$JQ_DEBUG" == "1" ]] && dump_json_pretty_from_file "$in_file" "in.${step}.json"
+  jq -c "${jq_args[@]}" "$program" "$in_file" 2> "$DUMP_DIR/jq.${step}.err"
 }
 
 # ---------------------------
@@ -115,7 +69,6 @@ fetch_kc_secret_to_file() {
       : "${KEYCLOAK_SECRET_NAME:?}"
       : "${KEYCLOAK_SECRET_KEY:=client-secret}"
       need_cmd kubectl
-
       kubectl -n "${KEYCLOAK_NAMESPACE}" get secret "${KEYCLOAK_SECRET_NAME}" \
         -o "jsonpath={.data.${KEYCLOAK_SECRET_KEY}}" | base64 -d > "${out}"
       ;;
@@ -124,9 +77,7 @@ fetch_kc_secret_to_file() {
       [[ -f "${KEYCLOAK_LOCAL_SECRET_FILE}" ]] || die "local secret file not found: ${KEYCLOAK_LOCAL_SECRET_FILE}"
       cat "${KEYCLOAK_LOCAL_SECRET_FILE}" > "${out}"
       ;;
-    *)
-      die "Unknown KCADM_EXEC_MODE=${KCADM_EXEC_MODE} (expected docker|kubectl)"
-      ;;
+    *) die "Unknown KCADM_EXEC_MODE=${KCADM_EXEC_MODE} (expected docker|kubectl)";;
   esac
 
   [[ -s "${out}" ]] || die "Fetched client secret is empty (mode=${KCADM_EXEC_MODE})"
@@ -147,12 +98,15 @@ jq -e . "$TC_SYNC_PAYLOAD_FILE" >/dev/null
 dump_json_pretty_from_file "$TC_SYNC_PAYLOAD_FILE" "payload.json"
 
 # ---------------------------
-# Build PLAN_JSON (NULL SAFE)
+# PLAN_JSON (TC 대상만 scopes에 남기기)
+# - tc_sets 비어있으면 제외 (기본)
+# - 단, TC_EMPTY_MEANS_DELETE=true면 비어있는 tc_sets도 포함
 # ---------------------------
 PLAN_JSON="$(
   run_jq_file "plan_build" '
     def as_array:  if type=="array"  then . else [] end;
     def as_object: if type=="object" then . else {} end;
+    def non_empty_obj: (type=="object" and (keys|length)>0);
 
     . as $p
     | {
@@ -163,24 +117,30 @@ PLAN_JSON="$(
         dry_run: ($p.dry_run // false),
         max_retries: ($p.max_retries // 5),
         backoff_ms: ($p.backoff_ms // 400),
+        tc_empty_means_delete: ($tc_empty_means_delete == "true"),
+
         scopes: (
           (
             (($p.client_scopes // []) | as_array)
             + (($p.shared_scopes // []) | as_array)
           )
-          | map(
-              . as $s
-              | {
-                  scope_id:   ($s.scope_id // $s.id // ""),
-                  scope_name: ($s.scope_name // ""),
-                  scope_key:  ($s.scope_key // ""),
-                  tc_sets:    (($s.tc_sets // {}) | as_object)
-                }
-            )
+          | map(. as $s | {
+              scope_id:   ($s.scope_id // $s.id // ""),
+              scope_name: ($s.scope_name // ""),
+              scope_key:  ($s.scope_key // ""),
+              tc_sets:    (($s.tc_sets // {}) | as_object)
+            })
           | map(select(.scope_id != ""))
+          | map(
+              if ($tc_empty_means_delete == "true") then
+                .                         # empty tc_sets도 포함(삭제 시나리오)
+              else
+                select(.tc_sets | non_empty_obj)   # tc_sets 비어있으면 제외
+              end
+            )
         )
       }
-  ' "$TC_SYNC_PAYLOAD_FILE"
+  ' "$TC_SYNC_PAYLOAD_FILE" --arg tc_empty_means_delete "$TC_EMPTY_MEANS_DELETE"
 )"
 dump_json_pretty_from_text "plan.json" "$PLAN_JSON"
 
@@ -192,8 +152,9 @@ DRY_RUN="$(jq -r '.dry_run | if . then "true" else "false" end' <<<"$PLAN_JSON")
 MAX_RETRIES="$(jq -r '.max_retries' <<<"$PLAN_JSON")"
 BACKOFF_MS="$(jq -r '.backoff_ms' <<<"$PLAN_JSON")"
 SCOPE_COUNT="$(jq -r '.scopes|length' <<<"$PLAN_JSON")"
+PLAN_EMPTY_DELETE="$(jq -r '.tc_empty_means_delete | if . then "true" else "false" end' <<<"$PLAN_JSON")"
 
-log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TC_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS scopes=$SCOPE_COUNT"
+log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TC_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS scopes=$SCOPE_COUNT tc_empty_means_delete=$PLAN_EMPTY_DELETE"
 
 kc_login_client_credentials 5 400
 
@@ -202,29 +163,22 @@ fetch_scope_json_to() {
   kc_exec get "realms/$REALM_ID/client-scopes/$scope_id" >"$out"
 }
 
-# ---------------------------
-# UPDATE via stdin (container-safe)
-# ---------------------------
+# stdin update
 update_scope_from_file() {
   local scope_id="$1" file="$2"
   [[ -f "$file" ]] || die "update payload file not found (host): $file"
   [[ -s "$file" ]] || die "update payload file is empty (host): $file"
 
-  # stderr 캡처해서 원인 파악 쉽게
   local err="$DUMP_DIR/kcadm.update.${scope_id}.err"
   : > "$err" || true
 
   if ! kc_exec update "realms/$REALM_ID/client-scopes/$scope_id" -f - <"$file" >/dev/null 2>"$err"; then
     log "ERROR: update failed scope_id=$scope_id (see $err)"
-    # 에러가 길면 앞부분만 콘솔에도 보여주기
-    sed -n '1,120p' "$err" >&2 || true
+    sed -n '1,160p' "$err" >&2 || true
     return 1
   fi
 }
 
-# ---------------------------
-# build_update_representation (NULL SAFE)
-# ---------------------------
 build_update_representation() {
   local cur_file="$1" desired_tc_sets_json="$2" out_file="$3" sid="$4"
 
@@ -306,20 +260,32 @@ print_diff() {
   ' "$cur" "$upd"
 }
 
-verify_scope_has_prefix_keys() {
-  local scope_id="$1"
+# verify 정책:
+# - tc_sets가 비어있지 않은 scope는 prefix 키가 있어야 한다(기본)
+# - TC_EMPTY_MEANS_DELETE=true & tc_sets empty면: "prefix 키가 없어도 OK" (삭제 시나리오)
+verify_scope_tc_policy() {
+  local scope_id="$1" desired_tc_sets_json="$2"
+
+  # tc_sets 비었는지
+  local tc_count
+  tc_count="$(jq -r 'if type=="object" then (keys|length) else 0 end' <<<"$desired_tc_sets_json")"
+
+  # empty=delete 모드 + empty tc_sets => prefix 키가 "없어도" 정상
+  if [[ "$PLAN_EMPTY_DELETE" == "true" && "$tc_count" -eq 0 ]]; then
+    log "VERIFY SKIP(scope_id=$scope_id): tc_sets empty and tc_empty_means_delete=true (prefix keys may be absent)"
+    return 0
+  fi
+
+  # 기본: prefix 키가 반드시 있어야 함
   local tmp
   tmp="$(mktemp -t tc_verify.XXXXXX.json)"
-
   if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" fetch_scope_json_to "$scope_id" "$tmp"; then
     log "ERROR: verify fetch failed scope_id=$scope_id"
     rm -f "$tmp" || true
     return 1
   fi
 
-  if jq -e --arg p "$TC_PREFIX_ROOT" '
-      (.attributes // {}) | keys | map(startswith($p + ".")) | any
-    ' "$tmp" >/dev/null; then
+  if jq -e --arg p "$TC_PREFIX_ROOT" '(.attributes // {}) | keys | map(startswith($p + ".")) | any' "$tmp" >/dev/null; then
     rm -f "$tmp" || true
     return 0
   fi
@@ -338,17 +304,11 @@ verify_scope_has_prefix_keys() {
 
 rc=0
 if [[ "$SCOPE_COUNT" -eq 0 ]]; then
-  log "No scopes in payload. Nothing to do."
+  log "No TC target scopes in plan. Nothing to do."
   exit 0
 fi
 
-# subshell rc bug 방지: mapfile로 받기
-mapfile -t SCOPE_IDS < <(jq -r '.scopes[].scope_id' <<<"$PLAN_JSON" 2>/dev/null || true)
-if [[ "${#SCOPE_IDS[@]}" -eq 0 ]]; then
-  log "No valid scope_id found in PLAN_JSON. Nothing to do."
-  exit 0
-fi
-
+mapfile -t SCOPE_IDS < <(jq -r '.scopes[].scope_id' <<<"$PLAN_JSON")
 for sid in "${SCOPE_IDS[@]}"; do
   [[ -n "$sid" ]] || continue
 
@@ -382,15 +342,14 @@ for sid in "${SCOPE_IDS[@]}"; do
     continue
   fi
 
-  log "UPDATING scope_id=$sid"
-  # 업데이트는 stdin 방식: 컨테이너 파일 불필요
+  log "UPDATING scope_id=$sid (stdin)"
   if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" update_scope_from_file "$sid" "$upd"; then
     rc=1
     continue
   fi
   log "UPDATED scope_id=$sid"
 
-  if ! verify_scope_has_prefix_keys "$sid"; then
+  if ! verify_scope_tc_policy "$sid" "$desired_tc_sets"; then
     rc=1
     continue
   fi
