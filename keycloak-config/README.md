@@ -1,63 +1,67 @@
 # Keycloak Terraform Config
 
-This directory contains Terraform templates for provisioning Keycloak realms, clients, client scopes, and the custom value-transform mapper.
-It is structured as a small environment layout (dev/stg/prd) that uses a MinIO (S3-compatible) backend.
+이 디렉터리는 Keycloak 리소스를 Terraform으로 관리하기 위한 코드 모음이다.
 
-## Structure
+## 디렉터리 구조
 
-- `modules/scopes`: Creates the `terms` and `claims` client scopes, plus the `value-transform-protocol-mapper`.
-- `modules/scopes` also supports shared client scopes that can be attached to multiple clients.
-- `dev|stg|prd`: Environment-specific Terraform roots with MinIO backend configuration, client/IdP configuration applied to an existing realm, required action enablement, and default scope attachment. These envs read the bootstrap state to discover the realm id.
-- `bootstrap`: Creates the Keycloak realm and service account client; realm attributes (including UserInfoSync) are managed here.
+- `modules/realm-clients`
+  - 서비스 OIDC client 생성
+  - shared/client scope 연결
+  - required action(`terms-required-action`) 등록
+  - approval 포털 client + approver role + post-broker flow 구성
+  - SAML IdP 및 mapper 구성
+- `modules/scopes`
+  - client-specific / shared OpenID client scope 생성
+  - generic protocol mapper 생성
+  - `tc_sets`를 `kcadm` 기반 스크립트로 scope attribute(`tc.<termKey>.*`) 동기화
+- `modules/realm-userinfo-sync`
+  - realm attribute `userinfosync.*` 출력값 생성
+- `infra/bootstrap`
+  - bootstrap realm + terraform client 생성
+  - bootstrap state를 환경 루트에서 참조
+- `infra/dev`, `infra/stg`, `infra/prd`
+  - 환경별 루트 모듈
+  - bootstrap 원격 상태를 읽어 실제 realm/client/scope/idp를 적용
 
-## UserInfoSync realm attributes
+## 핵심 동작
 
-UserInfoSync attributes are managed via the `modules/realms-userinfosync` module in `bootstrap` so the realm settings live with realm creation. Configure defaults (and optional overrides) with `userinfosync_defaults` / `userinfosync_overrides` in `bootstrap/terraform.tfvars`. The `userinfosync.mappingJson` value is stored as a JSON string (use `jsonencode(...)`), and `userinfosync.invalidateOnKeys` is a comma-separated string. Keep Knox credentials in environment or secret management; do not store them in Terraform variables.
+### 1) 약관 데이터(`tc_sets`) 동기화
 
-## Client scope attributes (Terms)
+`clients[*].scopes[*].tc_sets` 및 `shared_scopes[*].tc_sets`를 선언하면,
+`modules/scopes`가 JSON payload를 만들어 스크립트(`modules/scopes/scripts/tc/tc_sync_scopes.sh`)를 실행한다.
 
-Keycloak does not expose a separate “client scope attribute” object in the
-provider, so the `terms` scope attributes are applied via `kcadm.sh` with a
-`null_resource` provisioner. Supply the terms configuration under
-`clients[*].scopes.terms.tc_sets`, and the provisioner writes a single
-`attributes.tc.terms` JSON array on the client scope (no token mappers are added).
-Other token-mapped values should continue to use protocol mappers.
+실행 모드:
+- dev: `docker exec`
+- stg/prd: `kubectl exec`
 
-## Shared client scopes
+결과적으로 client scope attribute는 `tc.<termKey>.<field>` 형태로 기록되며,
+`terms-action` SPI가 이를 읽는다.
 
-To reuse protocol mappers across clients, define shared scopes in `shared_scopes` and attach them
-per client via `clients[*].shared_scopes` or by listing the shared scope key in `clients[*].default_scopes`.
-Shared scopes are created once (name = scope key), and are added to each client alongside its `default_scopes`.
+### 2) 승인 게이트(Access Approval)
 
-The provisioner shells out to the Keycloak container:
+`modules/realm-clients`는 아래를 자동 구성한다.
 
-- **dev** uses `docker exec` and requires `keycloak_container_name`.
-- **stg/prd** uses `kubectl exec` and requires `keycloak_namespace` and
-  `keycloak_pod_selector` (for example,
-  `app.kubernetes.io/name=keycloak`).
+- 서비스 client attribute
+  - `auto_approve`
+  - `approval_portal_url`
+- 서비스 client role
+  - `approved`
+- `approval-portal` client (service account enabled)
+- post-broker flow에서 `approval-gate-authenticator` 실행
 
-## Usage
+### 3) UserInfoSync realm attributes
 
-1. Copy the example variables and update them for your environment:
+`modules/realm-userinfo-sync`는 realm attribute 키(예: `userinfosync.enabled`, `userinfosync.mappingJson`)를 출력한다.
+실제 Knox API 호출에 필요한 비밀 값(`KNOX_*`)은 Terraform 변수 대신 런타임 환경변수로 주입해야 한다.
 
-```
-cd dev
-cp terraform.tfvars.example terraform.tfvars
-```
+## 사용 순서
 
-2. Initialize Terraform:
+1. `infra/bootstrap` 적용 (realm + terraform client 준비)
+2. 대상 환경(`infra/dev|stg|prd`)에서 `terraform init`
+3. 환경별 `terraform.tfvars.example` 기반으로 값 설정
+4. `terraform apply`
 
-```
-terraform init
-```
+## 참고
 
-> Note: `dev|stg|prd` reads the bootstrap state via the S3/MinIO backend configured in each
-> environment. Terraform does not support “check local state first, then S3” fallback
-> for `terraform_remote_state`, so the bootstrap state must be present in the configured
-> backend (or the configuration must be changed to use a local backend explicitly).
-
-3. Apply:
-
-```
-terraform apply
-```
+- bootstrap 세부: [`infra/bootstrap/README.md`](infra/bootstrap/README.md)
+- 매핑 샘플: [`mappings/dept_code.json`](mappings/dept_code.json)
