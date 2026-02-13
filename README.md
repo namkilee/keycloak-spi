@@ -1,168 +1,54 @@
-# Keycloak SPI Extensions
+# Keycloak SPI Extensions + Terraform Config
 
-This repository contains a multi-module Maven project that delivers Keycloak Server Provider Interfaces (SPI) for:
+이 저장소는 Keycloak 확장을 위한 **SPI 모듈(Java/Maven)** 과 운영 구성을 위한 **Terraform 코드**를 함께 관리한다.
 
-- **Terms & Conditions Required Action** (`terms-ra`)
-- **Value Transform Protocol Mapper** (`claim-mappers`)
-- **User Info Sync SPI** (`user-info-sync`)
+## 구성
 
-## Repository Structure
+- `spi-modules/`: Keycloak SPI 멀티 모듈 Maven 프로젝트
+- `keycloak-config/`: Realm/Client/Scope/IdP/Required Action/Realm Attribute Terraform 구성
+- `deploy/`: 배포 관련 레거시/샘플 리소스(도커/헬름/테마)
 
-- `spi/`: Keycloak SPI 모듈 모음. 상세 내용은 [`spi/README.md`](spi/README.md)에서 확인한다.
-- `keycloak-config/`: Keycloak Terraform 구성과 부트스트랩 정의. 하위 부트스트랩 문서는 [`keycloak-config/README.md`](keycloak-config/README.md) 및 [`keycloak-config/bootstrap/README.md`](keycloak-config/bootstrap/README.md)에 있다.
-- `deploy/`: Docker 이미지, Helm 차트, 테마 배포 관련 리소스. 상세 내용은 [`deploy/README.md`](deploy/README.md)에서 확인한다.
+## SPI 모듈
 
-## Modules
+`spi-modules/pom.xml` 기준으로 현재 활성 모듈은 아래 4개다.
 
-### Terms & Conditions Required Action (`terms-ra`)
+1. `terms-action`
+   - Required Action provider id: `terms-required-action`
+   - 클라이언트에 연결된 스코프의 `tc.<termKey>.*` 속성을 병합해 약관 UI를 렌더링
+   - 수락 결과는 사용자 attribute `tc.accepted.<clientId>.<termKey>`에 저장
+2. `claim-mappers`
+   - Protocol mapper id: `value-transform-protocol-mapper`
+   - 사용자 attribute 값을 규칙에 따라 토큰 claim으로 변환
+   - mapping source: client attribute / file(URL) / DB / API / inline
+3. `userinfo-sync`
+   - 스케줄 기반 사용자 속성 동기화 provider
+   - Realm attribute(`userinfosync.*`) + Knox API 환경변수(`KNOX_*`)로 동작
+4. `access-approval-action`
+   - Authenticator id: `approval-gate-authenticator`
+   - client attribute `auto_approve`, role `approved`, `approval_portal_url`을 기반으로 승인 게이트 처리
 
-This module provides a Required Action that forces users to accept one or more Terms & Conditions before continuing authentication.
-Terms are configured via client-scope attributes and rendered in a custom FreeMarker login template.
+## 빠른 빌드
 
-#### Configuration (client scopes)
-
-Terms are defined on client scopes using a single attribute:
-
-- `tc.terms`: JSON array of term objects.
-
-Each term object supports:
-
-- `key`: Term identifier (required).
-- `title`: Display title (defaults to `key`).
-- `version`: Version string (required).
-- `url`: Optional URL for the term document.
-- `required`: `true|false` to mark as required (defaults to `false` when omitted).
-
-**Scope resolution rules:**
-1. Only client scopes with `tc.terms` are considered.
-2. Scopes whose name starts with `shared-terms-` are treated as shared and loaded first.
-3. Non-shared scopes override shared scopes when keys overlap.
-4. Duplicate keys within the same layer (shared vs client-specific) cause a configuration error.
-
-#### Acceptance storage
-
-When a user accepts a term, the accepted version is stored on the user as:
-
-```
-tc.accepted.<clientId>.<termKey>
+```bash
+mvn -f spi-modules/pom.xml -pl terms-action,claim-mappers,userinfo-sync,access-approval-action -am package
 ```
 
-### Value Transform Protocol Mapper (`claim-mappers`)
+빌드된 jar는 각 모듈 `target/`과 루트 `spi-modules/target/providers/`(일부 모듈의 antrun 복사 설정)에서 확인할 수 있다.
 
-This module provides a protocol mapper that transforms a user attribute value into a token claim, using mapping rules supplied either inline or via client attributes.
+## Terraform 연계 포인트
 
-#### Configuration keys
+- `keycloak-config/modules/realm-clients`에서:
+  - Required Action `terms-required-action` 등록
+  - 각 서비스 클라이언트에 `approved` client role 생성
+  - 승인 포털(`approval-portal`) 클라이언트/권한 구성
+  - Post Broker Login Flow에 `approval-gate-authenticator` 실행 연결
+- `keycloak-config/modules/scopes`에서:
+  - 클라이언트/공유 스코프와 protocol mapper 생성
+  - `tc_sets`를 `kcadm` 스크립트로 `tc.<termKey>.*` attribute로 동기화
 
-- `source.user.attribute`: User attribute to read (e.g. `dept_code`).
-- `target.claim.name`: Claim name written to tokens.
-- `mapping.inline`: Mapping rules inline. Supports:
-  - CSV: `A01:finance,A02:people`
-  - JSON: `{ "A01": "finance", "A02": "people" }`
-- `mapping.file`: File path or URL to a JSON mapping document.
-- `mapping.db.enabled`: Enable mapping lookup from a SQL database.
-- `mapping.db.jdbc.url`: JDBC URL for the mapping database.
-- `mapping.db.username`: Database username.
-- `mapping.db.password`: Database password.
-- `mapping.db.query`: SQL query returning key/value columns for mapping.
-- `mapping.api.enabled`: Enable mapping lookup from an HTTP API.
-- `mapping.api.url`: API URL that returns JSON mapping.
-- `mapping.api.auth.type`: API auth type (`none|bearer|basic|apikey`).
-- `mapping.api.auth.token`: API token (bearer/api-key).
-- `mapping.api.auth.user`: API basic auth username.
-- `mapping.api.auth.password`: API basic auth password.
-- `mapping.api.timeout.ms`: API timeout in milliseconds.
-- `mapping.cache.enabled`: Cache merged mappings in memory.
-- `mapping.cache.ttl.seconds`: Cache TTL in seconds.
-- Cache key scope: Cache entries are shared across clients and mapper instances when the following config values match: `source.user.attribute`, `mapping.inline`, `mapping.file`, `mapping.db.*`, `mapping.api.*` (cache policy settings like `mapping.cache.*` do not affect the key).
-- `mapping.client.autoKey`: If `true`, reads mapping from client attribute `map.<source.user.attribute>`.
-- `mapping.client.key`: Manual/legacy client attribute key (used if auto-key is disabled or missing).
-- `fallback.original`: If `true`, uses the original value when no mapping exists.
-- `source.user.attribute.multi`: If `true`, maps all values from a multi-value user attribute and writes a list claim.
+## 참고 문서
 
-#### Mapping resolution order
-
-Mappings are merged from lowest to highest priority. When the same key appears multiple times, higher-priority sources override lower ones.
-
-Priority (highest → lowest):
-1. `mapping.inline`
-2. `mapping.api.*` (overrides DB mappings when the same key exists)
-3. `mapping.db.*`
-4. `mapping.file`
-5. Client attribute `map.<source.user.attribute>` (if enabled)
-6. Client attribute `mapping.client.key`
-
-Cache keys are derived only from the mapper configuration values:
-`source.user.attribute`, `mapping.inline`, `mapping.file`, `mapping.db.*`, `mapping.api.*`.
-Cache policy settings (`mapping.cache.*`) and client attribute values are not part of the key.
-
-### User Info Sync SPI (`user-info-sync`)
-
-This module provides a scheduled task that synchronizes a user department attribute from a Knox REST API.
-It supports multi-realm execution, realm attribute tuning, and cluster-safe once-per-day execution using a task key.
-
-#### Environment variables
-
-- `KNOX_API_URL`: Knox API endpoint (POST URL).
-- `KNOX_SYSTEM_ID`: Knox system-id header value.
-- `KNOX_API_TOKEN`: Knox bearer token (without the `Bearer ` prefix).
-
-#### Realm attribute keys
-
-- `userinfosync.enabled`: Enable sync (`true|false`).
-- `userinfosync.runAt`: Run time in `HH:mm` (default `03:00`).
-- `userinfosync.windowMinutes`: Allowed window in minutes (default `3`).
-- `userinfosync.batchSize`: Paging batch size (default `500`).
-- `userinfosync.resultType`: Knox result type (`basic|optional`, default `basic`).
-- `userinfosync.httpTimeoutMs`: HTTP timeout in milliseconds (default `5000`).
-- `userinfosync.maxConcurrency`: Parallel Knox calls (default `15`).
-- `userinfosync.retry.maxAttempts`: Retry attempts for retryable errors (default `3`).
-- `userinfosync.retry.baseBackoffMs`: Base backoff in milliseconds (default `250`).
-- `userinfosync.taskKeyPrefix`: Cluster task key prefix (default `userinfosync`).
-- `userinfosync.mappingJson`: JSON map of `{ userAttributeKey: knox.json.path }` (default `{"deptId":"response.employees.departmentCode"}`).
-- `userinfosync.invalidateOnKeys`: Comma-separated attribute keys that trigger session invalidation (default `deptId`).
-
-#### Sync behavior
-
-- Task key is `userinfosync:{realmId}:{yyyyMMdd}` by default and uses cluster execution with a 26-hour TTL.
-- When a user department changes, the SPI updates the attribute, sets `notBefore`, and logs out user sessions.
-
-## Keycloak Terraform Config (keycloak-config)
-
-Keycloak Terraform 구성은 `bootstrap`과 환경별(`dev|stg|prd`) 루트로 나뉜다.
-`bootstrap`은 Terraform용 서비스 계정과 기본 Realm을 생성하고, 각 환경은 부트스트랩 상태를 원격 상태로 읽어 실제 Realm 구성과 클라이언트/스코프/IDP를 설정한다.
-
-### 주요 개념
-
-- **terms scope 설정**
-  - 모든 환경에서 `clients[*].scopes.<scope>.tc_sets`로 약관 세트를 정의한다.
-  - `tc_sets`는 client scope의 `tc.terms` JSON 배열로 동기화되며, 레거시 `terms_attributes` 방식은 더 이상 사용하지 않는다.
-- **kcadm 실행 모드**
-  - **dev**는 Docker 컨테이너 내부에서 `kcadm.sh`를 실행하며 `keycloak_container_name`이 필요하다.
-  - **stg/prd**는 Kubernetes에서 `kubectl exec`를 사용하므로 `keycloak_namespace`, `keycloak_pod_selector`가 필요하다.
-- **SAML IdP**
-  - 모든 환경에서 SAML IdP 설정 및 매퍼 배열(`saml_idp_mappers`)을 지원한다.
-
-### Terraform 변수 예시
-
-필수/옵션 변수는 환경별 `terraform.tfvars.example`을 기준으로 관리한다.
-
-- `keycloak-config/bootstrap/terraform.tfvars.example`
-- `keycloak-config/dev/terraform.tfvars.example`
-- `keycloak-config/stg/terraform.tfvars.example`
-- `keycloak-config/prd/terraform.tfvars.example`
-
-환경별 자세한 구조와 주의사항은 [`keycloak-config/README.md`](keycloak-config/README.md)를 참고한다.
-
-## Prerequisites
-
-- Java 17 (see `spi/pom.xml` `<java.version>17</java.version>`).
-- Keycloak 26.3.3 compatible (see `spi/pom.xml` `<keycloak.version>26.3.3</keycloak.version>`).
-- Maven: use the project wrapper at `spi/mvnw` when building.
-
-## Build
-
-From the `spi` directory:
-
-```
-./mvnw -q -pl terms-ra,claim-mappers,user-info-sync -am package
-```
+- SPI 상세: [`spi-modules/README.md`](spi-modules/README.md)
+- Terraform 상세: [`keycloak-config/README.md`](keycloak-config/README.md)
+- Bootstrap 루트 상세: [`keycloak-config/infra/bootstrap/README.md`](keycloak-config/infra/bootstrap/README.md)
+- 배포 리소스 상세: [`deploy/README.md`](deploy/README.md)
