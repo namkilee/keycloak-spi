@@ -23,7 +23,7 @@ services:
       - "44364:44364"
     volumes:
       # SPI jar mount
-      - ./spi:/opt/bitnami/keycloak/providers
+      - ./spi-modules/target/providers:/opt/bitnami/keycloak/providers
       - ./themes:/opt/bitnami/keycloak/themes
     networks:
       - kc-net
