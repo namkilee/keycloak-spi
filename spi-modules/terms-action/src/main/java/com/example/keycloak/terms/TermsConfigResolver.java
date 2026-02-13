@@ -110,9 +110,12 @@ public final class TermsConfigResolver {
     // Return ordered by required desc then key asc (stable UI)
     List<Term> terms = merged.values().stream()
         .map(tp -> tp.term)
-        .sorted(Comparator.<Term>comparingBoolean(Term::required).reversed()
-            .thenComparing(Term::key))
+        .sorted(
+            Comparator.comparing(Term::required, Comparator.reverseOrder())
+                .thenComparing(Term::key, Comparator.nullsLast(String::compareTo))
+        )
         .toList();
+
 
     return new TermsBundle(List.copyOf(terms));
   }

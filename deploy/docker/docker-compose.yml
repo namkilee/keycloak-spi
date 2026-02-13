@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  keycloak:
+    image: docker.io/bitnamilegacy/keycloak:26.3.3-debian-12-r0
+    container_name: keycloak
+    restart: unless-stopped
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:pstgresql://postgres:5432/keycloak
+      - KC_DB_USERNAME=postgres
+      - KC_DB_PASSWORD=keycloak
+      - KC_CACHE=local
+      - KC_HTTP_RELATIVE_PATH=/
+      - KC_CACHE_CONFIG_FILE=cache-ispn.xml
+      - KC_HTTP_ENABLED=false
+      - KC_HTTPS_PORT=44364
+      - KC_HTTPS_CERTIFICATE_FILE=/certs/tls.crt
+      - KC_HTTPS_CERTIFICATE_KEY_FILE=/certs/tls.key
+    ports:
+      - "44364:44364"
+    volumes:
+      # SPI jar mount
+      - ./spi:/opt/bitnami/keycloak/providers
+      - ./themes:/opt/bitnami/keycloak/themes
+    networks:
+      - kc-net
+
+networks:
+  kc-net:
+    external: true
