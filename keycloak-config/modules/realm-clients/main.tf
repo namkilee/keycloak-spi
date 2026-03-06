@@ -1,8 +1,8 @@
 module "client_scopes" {
   source = "../scopes"
 
-  realm_id = var.realm_id
-  clients  = var.clients
+  realm_id      = var.realm_id
+  clients       = var.clients
   shared_scopes = var.shared_scopes
 
   keycloak_url            = var.keycloak_url
@@ -16,6 +16,9 @@ module "client_scopes" {
   keycloak_pod_selector   = var.keycloak_pod_selector
 }
 
+# =========================
+# Required Actions
+# =========================
 resource "keycloak_required_action" "terms_required" {
   realm_id       = var.realm_id
   alias          = "terms-required-action"
@@ -24,9 +27,18 @@ resource "keycloak_required_action" "terms_required" {
   default_action = false
 }
 
+resource "keycloak_required_action" "approval_required" {
+  realm_id       = var.realm_id
+  alias          = "approval-pending-action"
+  name           = "Approval Pending"
+  enabled        = true
+  default_action = false
+}
+
 # =========================
 # 서비스 OIDC clients
-# - client attributes: auto_approve + approval_portal_url
+# - client attributes: approval_portal_url 만 유지
+# - auto_approve 제거
 # =========================
 resource "keycloak_openid_client" "app" {
   for_each = var.clients
@@ -46,18 +58,8 @@ resource "keycloak_openid_client" "app" {
   login_theme                  = each.value.login_theme
 
   attributes = {
-    auto_approve        = tostring(try(each.value.auto_approve, false)) # "true"/"false"
     approval_portal_url = var.approval_portal_url
   }
-}
-
-# 서비스 client마다 approved client role 자동 생성
-resource "keycloak_role" "approved" {
-  for_each = keycloak_openid_client.app
-
-  realm_id  = var.realm_id
-  client_id = each.value.id
-  name      = "approved"
 }
 
 resource "keycloak_openid_client_default_scopes" "app" {
@@ -76,6 +78,7 @@ resource "keycloak_openid_client_default_scopes" "app" {
 
 # =========================
 # 승인 포털 OIDC client (service account ON)
+# - 외부 승인 서비스 / 승인 포털이 Keycloak Admin API 사용
 # =========================
 resource "keycloak_openid_client" "approval_portal" {
   realm_id  = var.realm_id
@@ -90,7 +93,7 @@ resource "keycloak_openid_client" "approval_portal" {
   direct_access_grants_enabled = false
 }
 
-# 포털 approver 역할(사람 권한) 자동 생성: approver_<client_id>
+# 포털 approver 역할(사람 권한): approver_<client_id>
 locals {
   portal_approver_role_names = {
     for k, c in var.clients :
@@ -106,7 +109,7 @@ resource "keycloak_role" "portal_approver_roles" {
   name      = each.value
 }
 
-# 포털 service account(시스템 권한)에 realm-management 최소 권한 부여
+# approval portal service account 에 realm-management 최소 권한 부여
 data "keycloak_openid_client" "realm_management" {
   realm_id  = var.realm_id
   client_id = "realm-management"
@@ -122,32 +125,16 @@ locals {
 }
 
 resource "keycloak_openid_client_service_account_role" "approval_portal_sa_roles" {
-  for_each               = local.approval_portal_realm_mgmt_roles
-  realm_id               = var.realm_id
-  client_id              = data.keycloak_openid_client.realm_management.id
+  for_each                = local.approval_portal_realm_mgmt_roles
+  realm_id                = var.realm_id
+  client_id               = data.keycloak_openid_client.realm_management.id
   service_account_user_id = keycloak_openid_client.approval_portal.service_account_user_id
-  role                   = each.value
+  role                    = each.value
 }
 
 # =========================
-# Post Broker Login Flow: 승인 게이트 실행
-# (Browser flow는 나중)
-# =========================
-resource "keycloak_authentication_flow" "post_broker_approval" {
-  realm_id = var.realm_id
-  alias    = "post-broker-approval"
-}
-
-resource "keycloak_authentication_execution" "post_broker_approval_gate" {
-  realm_id          = var.realm_id
-  parent_flow_alias = keycloak_authentication_flow.post_broker_approval.alias
-
-  authenticator = "approval-gate-authenticator" # SPI AuthenticatorFactory.getId()
-  requirement   = "REQUIRED"
-}
-
-# =========================
-# SAML IdP + Post Broker Login Flow 연결
+# SAML IdP
+# - 기존 post broker approval flow 연결 제거
 # =========================
 resource "keycloak_saml_identity_provider" "saml_idp" {
   realm                      = var.realm_id
@@ -165,16 +152,9 @@ resource "keycloak_saml_identity_provider" "saml_idp" {
   post_binding_response      = true
   want_assertions_signed     = true
 
-  # SAML 로그인 후 승인 게이트 실행
-  post_broker_login_flow_alias = keycloak_authentication_flow.post_broker_approval.alias
-
   extra_config = {
     idpEntityId = var.saml_idp_entity_id
   }
-
-  depends_on = [
-    keycloak_authentication_execution.post_broker_approval_gate
-  ]
 }
 
 resource "keycloak_attribute_importer_identity_provider_mapper" "saml_idp" {
@@ -245,7 +225,7 @@ resource "keycloak_custom_identity_provider_mapper" "saml_idp" {
   name                     = each.value.name
   identity_provider_alias  = keycloak_saml_identity_provider.saml_idp.alias
   identity_provider_mapper = each.value.identity_provider_mapper
-  extra_config             = merge(
+  extra_config = merge(
     coalesce(each.value.extra_config, {}),
     { syncMode = each.value.sync_mode }
   )
@@ -284,7 +264,7 @@ resource "keycloak_hardcoded_role_identity_provider_mapper" "saml_idp" {
 }
 
 # =========================
-# User Profile (기존 유지, 오타 수정 포함)
+# User Profile
 # =========================
 locals {
   user_profile = jsondecode(file("${path.module}/json/user-profile.json"))
@@ -296,9 +276,9 @@ resource "keycloak_realm_user_profile" "userprofile" {
   dynamic "attribute" {
     for_each = try(local.user_profile.attributes, [])
     content {
-      name         = attribute.value.name
-      display_name = try(attribute.value.displayName, null)
-      multi_valued = attribute.value.multi_valued
+      name                = attribute.value.name
+      display_name        = try(attribute.value.displayName, null)
+      multi_valued        = attribute.value.multi_valued
       required_for_roles  = try(attribute.value.required.roles, [])
       required_for_scopes = try(attribute.value.required.scopes, [])
       annotations = {
