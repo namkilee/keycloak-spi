@@ -1,9 +1,11 @@
 <#-- =========================================================
      Terms & Conditions (Multi) – Required Action (Browser)
-     - Variable sections based on `terms` list
-     - Content can be fetched from external URL (term.url)
-     - Required items: checkbox enabled only after content loaded + scrolled to bottom
-     - Accept button enabled only when all required are checked
+     Features:
+       - Variable sections based on `terms` list
+       - External content fetched from term.url
+       - Required items: checkbox enabled only after content loaded + scrolled to bottom
+       - Accept button enabled only when all required are checked
+       - AAP logo applied to top area
      ========================================================= -->
 
 <!DOCTYPE html>
@@ -19,10 +21,13 @@
 <body>
   <div class="page">
     <header class="topbar" role="banner">
-      <div class="brand" aria-label="Brand">
-        <img class="brand-logo" src="${url.resourcesPath}/img/logo.svg" alt="Logo"
-             onerror="this.style.display='none'"/>
-        <div class="brand-mark">SAMSUNG</div>
+      <div class="brand" aria-label="AAP Brand">
+        <img
+          class="brand-logo-aap"
+          src="${url.resourcesPath}/img/aap-logo.png"
+          alt="AAP AI Assistant Platform"
+          onerror="this.style.display='none'"
+        />
       </div>
     </header>
 
@@ -32,7 +37,6 @@
         ${msg("termsIntro","To continue, please review and accept the following terms. Required terms must be accepted to proceed.")}
       </p>
 
-      <#-- errorKey 우선 -->
       <#if errorKey?? && errorKey?has_content>
         <div class="alert-error" role="alert">${msg(errorKey)}</div>
       <#elseif error?? && error?has_content>
@@ -44,20 +48,19 @@
           <div class="terms" role="list">
 
             <#list terms as term>
-              <#assign termKey   = (term.key())!"" >
+              <#assign termKey = (term.key())!"" >
               <#assign termTitle = (term.title())!termKey >
-              <#assign termUrl   = (term.url())!"" >
+              <#assign termUrl = (term.url())!"" >
               <#assign isRequired = (term.required())!false >
-
-              <#-- missing에는 "누락된 required key"만 온다 -->
               <#assign isPreChecked = (missing?? && !missing?seq_contains(termKey)) >
 
-              <section class="term-card"
-                       role="listitem"
-                       data-term-key="${termKey}"
-                       data-required="${isRequired?string('true','false')}"
-                       data-url="${termUrl?html}"
-                       data-prechecked="${isPreChecked?string('true','false')}">
+              <section
+                class="term-card"
+                role="listitem"
+                data-term-key="${termKey}"
+                data-required="${isRequired?string('true','false')}"
+                data-url="${termUrl}"
+                data-prechecked="${isPreChecked?string('true','false')}">
 
                 <div class="term-head">
                   <input
@@ -67,7 +70,6 @@
                     name="accepted"
                     value="${termKey}"
                     <#if isPreChecked>checked</#if>
-                    <#-- required & not prechecked: gated -->
                     <#if isRequired && !isPreChecked>disabled</#if>
                   />
 
@@ -98,13 +100,13 @@
                   </div>
                 </div>
 
-                <#-- URL이 있으면: fetch로 컨텐츠 로딩해 스크롤 박스에 렌더 -->
                 <#if termUrl?has_content>
-                  <div class="term-content"
-                       data-scrollbox="true"
-                       aria-busy="true"
-                       tabindex="0"
-                       aria-label="${termTitle}">
+                  <div
+                    class="term-content"
+                    data-scrollbox="true"
+                    aria-busy="true"
+                    tabindex="0"
+                    aria-label="${termTitle}">
                     <div class="term-content-inner" data-content>
                       ${msg("loading","Loading...")}
                     </div>
@@ -124,7 +126,6 @@
                     </span>
                   </div>
                 </#if>
-
               </section>
             </#list>
 
@@ -148,7 +149,7 @@
     </main>
 
     <footer class="footer" role="contentinfo">
-      © 2026 Example Electronics. All rights reserved.
+      © 2026 AAP. All rights reserved.
     </footer>
   </div>
 
