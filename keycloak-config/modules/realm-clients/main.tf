@@ -18,6 +18,8 @@ module "client_scopes" {
 
 # =========================
 # Required Actions
+# - 같은 realm 내에서는 순서 고정
+# - terms 먼저, approval 나중
 # =========================
 resource "keycloak_required_action" "terms_required" {
   realm_id       = var.realm_id
@@ -25,6 +27,7 @@ resource "keycloak_required_action" "terms_required" {
   name           = "Terms & Conditions (multi)"
   enabled        = true
   default_action = false
+  priority       = 10
 }
 
 resource "keycloak_required_action" "approval_required" {
@@ -33,6 +36,7 @@ resource "keycloak_required_action" "approval_required" {
   name           = "Approval Pending"
   enabled        = true
   default_action = false
+  priority       = 20
 }
 
 # =========================
