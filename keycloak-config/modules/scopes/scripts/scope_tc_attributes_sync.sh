@@ -21,7 +21,7 @@ trap 'rc=$?;
 : "${SCOPE_ID:?}"                # may be stale if scope recreated
 : "${SCOPE_KEY:?}"
 : "${SCOPE_NAME:?}"              # actual Keycloak client-scope name
-: "${TC_SETS_JSON:?}"
+: "${terms_sets_JSON:?}"
 
 # =========================
 # Optional envs
@@ -246,7 +246,7 @@ if name!=expected:
 ' SCOPE_NAME="${SCOPE_NAME}"
 
 dbg "Building updated payload (mode=${SYNC_MODE})"
-dbg "TC_SETS_JSON_SHA256=$(printf '%s' "${TC_SETS_JSON}" | sha256sum | awk '{print $1}')"
+dbg "terms_sets_JSON_SHA256=$(printf '%s' "${terms_sets_JSON}" | sha256sum | awk '{print $1}')"
 
 # =========================
 # Build updated *minimal* ClientScopeRepresentation on HOST
@@ -255,14 +255,14 @@ TMP_JSON="$(mktemp)"
 trap 'rm -f "${TMP_JSON}"' EXIT
 
 CURRENT_JSON="${CURRENT_JSON}" \
-TC_SETS_JSON="${TC_SETS_JSON}" \
+terms_sets_JSON="${terms_sets_JSON}" \
 PREFIX="${PREFIX}" \
 SYNC_MODE="${SYNC_MODE}" \
 python3 - <<'PY' > "${TMP_JSON}"
 import json, os
 
 current = json.loads(os.environ["CURRENT_JSON"])
-tc_sets = json.loads(os.environ["TC_SETS_JSON"])
+terms_sets = json.loads(os.environ["terms_sets_JSON"])
 prefix = os.environ["PREFIX"]
 mode = os.environ.get("SYNC_MODE", "replace")
 
@@ -281,7 +281,7 @@ if mode == "replace":
     attrs.pop("tc.terms", None)
 
 terms = []
-for term_key, cfg in (tc_sets or {}).items():
+for term_key, cfg in (terms_sets or {}).items():
     if not isinstance(cfg, dict):
         continue
     title = cfg.get("title") or term_key

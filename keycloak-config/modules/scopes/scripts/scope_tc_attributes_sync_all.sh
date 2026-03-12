@@ -64,7 +64,7 @@ PY
 }
 
 # ---- Load plan
-PLAN="$(mktemp -t tc_plan.XXXXXX.json)"
+PLAN="$(mktemp -t temrs_plan.XXXXXX.json)"
 python3 - <<'PY' >"$PLAN"
 import json
 p=json.load(open("${TC_SYNC_PAYLOAD_FILE}","r",encoding="utf-8"))
@@ -73,7 +73,7 @@ plan={
   "realm_id": p["realm_id"],
   "sync_mode": p.get("sync_mode","replace"),
   "allow_delete": bool(p.get("allow_delete", True)),
-  "tc_prefix_root": p.get("tc_prefix_root","tc"),
+  "temrs_prefix_root": p.get("temrs_prefix_root","tc"),
   "dry_run": bool(p.get("dry_run", False)),
   "max_retries": int(p.get("max_retries", 5)),
   "backoff_ms": int(p.get("backoff_ms", 400)),
@@ -86,7 +86,7 @@ def add(scopes):
       "scope_id": s["scope_id"],
       "scope_name": s.get("scope_name",""),
       "scope_key": s.get("scope_key",""),
-      "tc_sets": s.get("tc_sets") or {}
+      "terms_sets": s.get("terms_sets") or {}
     })
 
 add(p.get("client_scopes"))
@@ -98,7 +98,7 @@ PY
 REALM_ID="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["realm_id"])')"
 SYNC_MODE="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["sync_mode"])')"
 ALLOW_DELETE="$(python3 -c 'import json;print("true" if json.load(open("'"$PLAN"'"))["allow_delete"] else "false")')"
-TC_PREFIX_ROOT="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["tc_prefix_root"])')"
+TC_PREFIX_ROOT="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["temrs_prefix_root"])')"
 DRY_RUN="$(python3 -c 'import json;print("true" if json.load(open("'"$PLAN"'"))["dry_run"] else "false")')"
 MAX_RETRIES="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["max_retries"])')"
 BACKOFF_MS="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["backoff_ms"])')"
@@ -125,7 +125,7 @@ update_scope_attributes() {
 }
 
 # ---- Build desired map
-DESIRED="$(mktemp -t tc_desired.XXXXXX.json)"
+DESIRED="$(mktemp -t temrs_desired.XXXXXX.json)"
 python3 - <<'PY' >"$DESIRED"
 import json
 plan=json.load(open("'"$PLAN"'"))
@@ -134,13 +134,13 @@ for s in plan["scopes"]:
   m[s["scope_id"]]={
     "scope_key": s.get("scope_key",""),
     "scope_name": s.get("scope_name",""),
-    "tc_sets": s.get("tc_sets") or {}
+    "terms_sets": s.get("terms_sets") or {}
   }
 print(json.dumps(m, ensure_ascii=False))
 PY
 
 # ---- Iterate scope ids
-IDS="$(mktemp -t tc_ids.XXXXXX.txt)"
+IDS="$(mktemp -t temrs_ids.XXXXXX.txt)"
 python3 - <<'PY' >"$IDS"
 import json
 plan=json.load(open("'"$PLAN"'"))
@@ -151,8 +151,8 @@ PY
 process_one_scope() {
   local scope_id="$1"
   local cur upd
-  cur="$(mktemp -t tc_cur.XXXXXX.json)"
-  upd="$(mktemp -t tc_upd.XXXXXX.json)"
+  cur="$(mktemp -t temrs_cur.XXXXXX.json)"
+  upd="$(mktemp -t temrs_upd.XXXXXX.json)"
 
   if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" bash -lc "get_scope_json '$scope_id' > '$cur'"; then
     log "ERROR: fetch failed scope_id=$scope_id"
@@ -174,17 +174,17 @@ if not d:
   raise SystemExit(0)
 
 cur_attrs=cur.get("attributes") or {}
-tc_sets=d.get("tc_sets") or {}
+terms_sets=d.get("terms_sets") or {}
 
-def k(tc_key, field): return f"{prefix}.{tc_key}.{field}"
+def k(temrs_key, field): return f"{prefix}.{temrs_key}.{field}"
 
 desired_tc={}
-for tc_key, tc in tc_sets.items():
-  desired_tc[k(tc_key,"required")] = "true" if tc.get("required") else "false"
-  desired_tc[k(tc_key,"version")]  = str(tc.get("version",""))
-  if tc.get("title"):    desired_tc[k(tc_key,"title")]    = str(tc["title"])
-  if tc.get("url"):      desired_tc[k(tc_key,"url")]      = str(tc["url"])
-  if tc.get("template"): desired_tc[k(tc_key,"template")] = str(tc["template"])
+for temrs_key, tc in terms_sets.items():
+  desired_tc[k(temrs_key,"required")] = "true" if tc.get("required") else "false"
+  desired_tc[k(temrs_key,"version")]  = str(tc.get("version",""))
+  if tc.get("title"):    desired_tc[k(temrs_key,"title")]    = str(tc["title"])
+  if tc.get("url"):      desired_tc[k(temrs_key,"url")]      = str(tc["url"])
+  if tc.get("template"): desired_tc[k(temrs_key,"template")] = str(tc["template"])
 
 new_attrs=dict(cur_attrs)
 

@@ -21,6 +21,9 @@ TERMS_EMPTY_MEANS_DELETE="${TERMS_EMPTY_MEANS_DELETE:-false}"  # true|false
 # 상세 diff 로그 출력 개수 제한
 DIFF_LOG_LIMIT="${DIFF_LOG_LIMIT:-200}"
 
+ATTR_TERMS_CONFIG="terms_config"
+ATTR_TERMS_PRIORITY="terms_priority"
+
 ensure_dump_dir() { mkdir -p "$DUMP_DIR"; }
 
 dump_file_copy() {
@@ -147,8 +150,8 @@ PLAN_JSON="$(
               scope_id:        ($s.scope_id // $s.id // ""),
               scope_name:      ($s.scope_name // ""),
               scope_key:       ($s.scope_key // ""),
-              terms_sets:      (($s.terms_sets // $s.tc_sets // {}) | as_object),
-              terms_priority:  ($s.terms_priority // $s.tc_priority // "0" | tostring)
+              terms_sets:      (($s.terms_sets // {}) | as_object),
+              terms_priority:  ($s.terms_priority // "0" | tostring)
             })
           | map(select(.scope_id != ""))
           | map(
@@ -209,9 +212,9 @@ build_update_representation() {
   dump_json_pretty_from_file "$cur_file" "cur.${sid}.json"
   dump_json_pretty_from_text "desired.${sid}.json" "$desired_terms_sets_json"
 
-  local safe_terms_sets
-  safe_terms_sets="$(
-    run_jq_stdin "desired_terms_sets_normalize.${sid}" '
+  local normalized_terms_config
+  normalized_terms_config="$(
+    run_jq_stdin "desired_terms_config_normalize.${sid}" '
       def as_object: if type=="object" then . else {} end;
       . | as_object
     ' <<<"$desired_terms_sets_json" | jq -c '.'
@@ -219,40 +222,29 @@ build_update_representation() {
 
   local program='
     def as_object: if type=="object" then . else {} end;
-    def k($term_key; $field): "\($prefix).\($term_key).\($field)";
     def is_managed_key($key):
-      ($key | startswith($prefix + "."))
+      ($key == "terms_config")
       or ($key == "terms_priority");
-
-    def desired_terms_map($terms_sets):
-      ($terms_sets | as_object | to_entries)
-      | map(.key as $term_key | (.value | as_object) as $term |
-          [
-            {key: k($term_key;"required"), value: (if ($term.required // false) then "true" else "false" end)},
-            {key: k($term_key;"version"),  value: (($term.version // "")|tostring)},
-            (if ($term.title? and ($term.title|tostring|length)>0) then {key:k($term_key;"title"), value:($term.title|tostring)} else empty end),
-            (if ($term.url? and ($term.url|tostring|length)>0) then {key:k($term_key;"url"), value:($term.url|tostring)} else empty end),
-            (if ($term.template? and ($term.template|tostring|length)>0) then {key:k($term_key;"template"), value:($term.template|tostring)} else empty end)
-          ]
-      )
-      | add
-      | (if . == null then {} else from_entries end);
 
     . as $cur
     | (.attributes // {} | as_object) as $a
-    | desired_terms_map($terms_sets) as $want
     | (
         if $mode == "replace" and $allow_delete == "true" then
           ($a | with_entries(select(is_managed_key(.key) | not)))
         else
-          $a
+          ($a | with_entries(select(is_managed_key(.key) | not)))
         end
       ) as $base
     | (
         if $delete_only == "true" then
           ($cur | .attributes = $base)
         else
-          ($cur | .attributes = ($base + $want + { "terms_priority": ($terms_priority|tostring) }))
+          ($cur | .attributes = (
+            $base + {
+              "terms_config": $terms_config_json_string,
+              "terms_priority": ($terms_priority|tostring)
+            }
+          ))
         end
       )
   '
@@ -263,11 +255,10 @@ build_update_representation() {
 
   if ! jq -c \
       --arg mode "$SYNC_MODE" \
-      --arg prefix "$TERMS_PREFIX_ROOT" \
       --arg allow_delete "$ALLOW_DELETE" \
       --arg terms_priority "$terms_priority" \
       --arg delete_only "$delete_only" \
-      --argjson terms_sets "$safe_terms_sets" \
+      --arg terms_config_json_string "$normalized_terms_config" \
       "$program" "$cur_file" \
       >"$out_file" 2>"$DUMP_DIR/jq.build_update_representation.${sid}.err"
   then
@@ -279,7 +270,6 @@ build_update_representation() {
   dump_json_pretty_from_file "$out_file" "upd.${sid}.json"
 }
 
-# 요약 + 상세 diff 로그
 print_diff_summary() {
   local cur="$1" upd="$2" sid="$3"
 
@@ -350,18 +340,18 @@ verify_scope_terms_policy() {
   fi
 
   if [[ "$should_exist" == "true" ]]; then
-    if jq -e --arg p "$TERMS_PREFIX_ROOT" '
+    if jq -e '
       (.attributes // {}) as $a
-      | (($a | keys | map(startswith($p + ".")) | any) and ($a | has("terms_priority")))
+      | (($a | has("terms_config")) and ($a | has("terms_priority")))
     ' "$tmp" >/dev/null; then
       rm -f "$tmp" || true
       return 0
     fi
 
     log "ERROR: verify failed. expected managed terms keys to exist. scope_id=$scope_id"
-    jq -r --arg p "$TERMS_PREFIX_ROOT" '
+    jq -r '
       (.attributes // {}) | to_entries
-      | map(select((.key | startswith($p + ".")) or .key == "terms_priority"))
+      | map(select(.key == "terms_config" or .key == "terms_priority"))
       | .[:100]
       | if length == 0 then "(no managed terms attributes)" else (map("\(.key)=\(.value)") | join("\n")) end
     ' "$tmp" >&2 || true
@@ -370,19 +360,18 @@ verify_scope_terms_policy() {
     return 1
   fi
 
-  if jq -e --arg p "$TERMS_PREFIX_ROOT" '
-    (.attributes // {}) | to_entries
-    | map(select((.key | startswith($p + ".")) or .key == "terms_priority"))
-    | length == 0
+  if jq -e '
+    (.attributes // {}) as $a
+    | (($a | has("terms_config") | not) and ($a | has("terms_priority") | not))
   ' "$tmp" >/dev/null; then
     rm -f "$tmp" || true
     return 0
   fi
 
   log "ERROR: verify failed. expected managed terms keys to be removed. scope_id=$scope_id"
-  jq -r --arg p "$TERMS_PREFIX_ROOT" '
+  jq -r '
     (.attributes // {}) | to_entries
-    | map(select((.key | startswith($p + ".")) or .key == "terms_priority"))
+    | map(select(.key == "terms_config" or .key == "terms_priority"))
     | .[:100]
     | if length == 0 then "(no managed terms attributes)" else (map("\(.key)=\(.value)") | join("\n")) end
   ' "$tmp" >&2 || true
@@ -407,7 +396,7 @@ CURRENT_MANAGED_SCOPES_JSON="$(
     | map(
         select(
           (
-            (.attributes // {} | as_object | keys | map(startswith($prefix + ".")) | any)
+            (.attributes // {} | as_object | has("terms_config"))
           )
           or
           (
@@ -420,7 +409,7 @@ CURRENT_MANAGED_SCOPES_JSON="$(
           }
       )
     | map(select(.scope_id != ""))
-  ' "$ALL_SCOPES_FILE" --arg prefix "$TERMS_PREFIX_ROOT"
+  ' "$ALL_SCOPES_FILE"
 )"
 dump_json_pretty_from_text "current_managed_scopes.json" "$CURRENT_MANAGED_SCOPES_JSON"
 

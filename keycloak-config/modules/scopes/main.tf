@@ -54,29 +54,28 @@ locals {
     for item in flatten([
       for client_key, client in var.clients : [
         for scope_key, scope in client.scopes : {
-          key         = "${client_key}.${scope_key}"
-          scope_key   = scope_key
-          tc_sets     = try(scope.tc_sets, null)
-          tc_priority = tostring(try(scope.tc_priority, 100))
+          key            = "${client_key}.${scope_key}"
+          scope_key      = scope_key
+          terms_sets     = try(scope.terms_sets, null)
+          terms_priority = tostring(try(scope.terms_priority, 100))
         }
       ]
     ]) : item.key => item
-    if item.tc_sets != null
+    if item.terms_sets != null
   }
-
 
   shared_scope_tc_payloads = {
     for item in flatten([
       for scope_key, scope in var.shared_scopes : [
         {
-          key         = scope_key
-          scope_key   = scope_key
-          tc_sets     = try(scope.tc_sets, null)
-          tc_priority = tostring(try(scope.tc_priority, 10))
+          key            = scope_key
+          scope_key      = scope_key
+          terms_sets     = try(scope.terms_sets, null)
+          terms_priority = tostring(try(scope.terms_priority, 10))
         }
       ]
     ]) : item.key => item
-    if item.tc_sets != null
+    if item.terms_sets != null
   }
 }
 
@@ -122,38 +121,35 @@ resource "keycloak_generic_protocol_mapper" "shared" {
   config          = each.value.config
 }
 
-# =========================
-# TC sync payload (realm 단일)
-# =========================
 locals {
   tc_sync_client_scopes = [
     for k, v in local.scope_tc_payloads : {
-      scope_key    = v.scope_key
-      scope_id     = keycloak_openid_client_scope.scopes[k].id
-      scope_name   = keycloak_openid_client_scope.scopes[k].name
-      tc_sets      = v.tc_sets
-      tc_priority  = v.tc_priority
+      scope_key       = v.scope_key
+      scope_id        = keycloak_openid_client_scope.scopes[k].id
+      scope_name      = keycloak_openid_client_scope.scopes[k].name
+      terms_sets      = v.terms_sets
+      terms_priority  = v.terms_priority
     }
   ]
 
   tc_sync_shared_scopes = [
     for k, v in local.shared_scope_tc_payloads : {
-      scope_key    = v.scope_key
-      scope_id     = keycloak_openid_client_scope.shared_scopes[k].id
-      scope_name   = keycloak_openid_client_scope.shared_scopes[k].name
-      tc_sets      = v.tc_sets
-      tc_priority  = v.tc_priority
+      scope_key       = v.scope_key
+      scope_id        = keycloak_openid_client_scope.shared_scopes[k].id
+      scope_name      = keycloak_openid_client_scope.shared_scopes[k].name
+      terms_sets      = v.terms_sets
+      terms_priority  = v.terms_priority
     }
   ]
 
   tc_sync_payload = {
-    realm_id       = var.realm_id
-    sync_mode      = var.tc_sync.mode
-    allow_delete   = var.tc_sync.allow_delete
-    tc_prefix_root = var.tc_sync.tc_prefix_root
-    dry_run        = var.tc_sync.dry_run
-    max_retries    = var.tc_sync.max_retries
-    backoff_ms     = var.tc_sync.backoff_ms
+    realm_id          = var.realm_id
+    sync_mode         = var.tc_sync.mode
+    allow_delete      = var.tc_sync.allow_delete
+    terms_prefix_root = var.tc_sync.tc_prefix_root
+    dry_run           = var.tc_sync.dry_run
+    max_retries       = var.tc_sync.max_retries
+    backoff_ms        = var.tc_sync.backoff_ms
 
     client_scopes = local.tc_sync_client_scopes
     shared_scopes = local.tc_sync_shared_scopes
@@ -186,7 +182,7 @@ resource "null_resource" "tc_attributes_sync_all" {
 ${jsonencode(local.tc_sync_payload)}
 JSON
 
-      export TC_SYNC_PAYLOAD_FILE="$PAYLOAD"
+      export TERMS_SYNC_PAYLOAD_FILE="$PAYLOAD"
 
       /bin/bash "${path.module}/scripts/tc/tc_sync_scopes.sh" >"$LOG" 2>&1 || {
         rc=$?
@@ -208,11 +204,8 @@ JSON
       KEYCLOAK_AUTH_REALM = var.keycloak_auth_realm
       KEYCLOAK_CLIENT_ID  = var.keycloak_client_id
 
-      # k8s에서 읽을 secret (bootstrap이 이 이름으로 생성해둠)
-      KEYCLOAK_SECRET_NAME = "kc-${var.realm_id}-client-credentials"
-      KEYCLOAK_SECRET_KEY  = "client-secret"
-
-      # docker(dev)에서 읽을 로컬 파일 (bootstrap이 이 파일을 생성해둠)
+      KEYCLOAK_SECRET_NAME      = "kc-${var.realm_id}-client-credentials"
+      KEYCLOAK_SECRET_KEY       = "client-secret"
       KEYCLOAK_LOCAL_SECRET_FILE = "${path.root}/.secrets/kc_${var.realm_id}_client_secret"
     }
   }
