@@ -5,35 +5,54 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/kc_kcadm.sh"
 
 need_cmd jq
-: "${TC_SYNC_PAYLOAD_FILE:?}"
+: "${TERMS_SYNC_PAYLOAD_FILE:?}"
 
 # ---------------------------
-# Debug options
+# Debug / behavior options
 # ---------------------------
 JQ_DEBUG="${JQ_DEBUG:-0}"
-DUMP_DIR="${DUMP_DIR:-.tc_sync_debug}"
+DUMP_DIR="${DUMP_DIR:-.terms_sync_debug}"
 LAST_STEP="init"
 
-# 정책 옵션: tc_sets가 비어있는 scope를 어떻게 처리할지
-TC_EMPTY_MEANS_DELETE="${TC_EMPTY_MEANS_DELETE:-false}"  # true|false
+# true  -> payload에 terms_sets = {} 로 들어온 scope도 "삭제 대상"으로 plan 포함
+# false -> terms_sets 비어있으면 desired plan 에서 제외
+TERMS_EMPTY_MEANS_DELETE="${TERMS_EMPTY_MEANS_DELETE:-false}"  # true|false
+
+# 상세 diff 로그 출력 개수 제한
+DIFF_LOG_LIMIT="${DIFF_LOG_LIMIT:-200}"
 
 ensure_dump_dir() { mkdir -p "$DUMP_DIR"; }
 
-dump_file_copy() { local src="$1" name="$2"; [[ -f "$src" ]] || return 0; ensure_dump_dir; cp -f "$src" "$DUMP_DIR/$name" 2>/dev/null || true; }
-dump_json_pretty_from_file() { local src="$1" name="$2"; [[ -f "$src" ]] || return 0; ensure_dump_dir; jq '.' "$src" > "$DUMP_DIR/$name" 2>/dev/null || cp -f "$src" "$DUMP_DIR/$name.raw" 2>/dev/null || true; }
-dump_json_pretty_from_text() { local name="$1" json="$2"; ensure_dump_dir; printf '%s\n' "$json" | jq '.' > "$DUMP_DIR/$name" 2>/dev/null || printf '%s\n' "$json" > "$DUMP_DIR/$name.raw" 2>/dev/null || true; }
+dump_file_copy() {
+  local src="$1" name="$2"
+  [[ -f "$src" ]] || return 0
+  ensure_dump_dir
+  cp -f "$src" "$DUMP_DIR/$name" 2>/dev/null || true
+}
+
+dump_json_pretty_from_file() {
+  local src="$1" name="$2"
+  [[ -f "$src" ]] || return 0
+  ensure_dump_dir
+  jq '.' "$src" > "$DUMP_DIR/$name" 2>/dev/null || cp -f "$src" "$DUMP_DIR/$name.raw" 2>/dev/null || true
+}
+
+dump_json_pretty_from_text() {
+  local name="$1" json="$2"
+  ensure_dump_dir
+  printf '%s\n' "$json" | jq '.' > "$DUMP_DIR/$name" 2>/dev/null || printf '%s\n' "$json" > "$DUMP_DIR/$name.raw" 2>/dev/null || true
+}
 
 on_err() {
   local exit_code=$?
-  echo "[FATAL] failed (exit=$exit_code) step=$LAST_STEP at line=${BASH_LINENO[0]} cmd=${BASH_COMMAND}" >&2
+  echo "[FATAL] failed (exit=$exit_code) step=$LAST_STEP line=${BASH_LINENO[0]} cmd=${BASH_COMMAND}" >&2
   echo "[FATAL] dump dir: $DUMP_DIR" >&2
-  dump_file_copy "$TC_SYNC_PAYLOAD_FILE" "payload.json.raw"
-  dump_json_pretty_from_file "$TC_SYNC_PAYLOAD_FILE" "payload.json"
+  dump_file_copy "$TERMS_SYNC_PAYLOAD_FILE" "payload.json.raw"
+  dump_json_pretty_from_file "$TERMS_SYNC_PAYLOAD_FILE" "payload.json"
   exit "$exit_code"
 }
 trap on_err ERR
 
-# jq runner (supports jq args)
 run_jq_file() {
   local step="$1" program="$2" in_file="$3"; shift 3
   local jq_args=("$@")
@@ -57,7 +76,7 @@ run_jq_stdin() {
 }
 
 # ---------------------------
-# Runtime secret fetch (NO terraform sensitive)
+# Runtime secret fetch
 # ---------------------------
 fetch_kc_secret_to_file() {
   local out="$1"
@@ -77,7 +96,9 @@ fetch_kc_secret_to_file() {
       [[ -f "${KEYCLOAK_LOCAL_SECRET_FILE}" ]] || die "local secret file not found: ${KEYCLOAK_LOCAL_SECRET_FILE}"
       cat "${KEYCLOAK_LOCAL_SECRET_FILE}" > "${out}"
       ;;
-    *) die "Unknown KCADM_EXEC_MODE=${KCADM_EXEC_MODE} (expected docker|kubectl)";;
+    *)
+      die "Unknown KCADM_EXEC_MODE=${KCADM_EXEC_MODE} (expected docker|kubectl)"
+      ;;
   esac
 
   [[ -s "${out}" ]] || die "Fetched client secret is empty (mode=${KCADM_EXEC_MODE})"
@@ -93,14 +114,12 @@ trap 'rm -f "$SECRET_FILE" 2>/dev/null || true' EXIT
 # Validate payload JSON early
 # ---------------------------
 ensure_dump_dir
-dump_file_copy "$TC_SYNC_PAYLOAD_FILE" "payload.json.raw"
-jq -e . "$TC_SYNC_PAYLOAD_FILE" >/dev/null
-dump_json_pretty_from_file "$TC_SYNC_PAYLOAD_FILE" "payload.json"
+dump_file_copy "$TERMS_SYNC_PAYLOAD_FILE" "payload.json.raw"
+jq -e . "$TERMS_SYNC_PAYLOAD_FILE" >/dev/null
+dump_json_pretty_from_file "$TERMS_SYNC_PAYLOAD_FILE" "payload.json"
 
 # ---------------------------
-# PLAN_JSON (TC 대상만 scopes에 남기기)
-# - tc_sets 비어있으면 제외 (기본)
-# - 단, TC_EMPTY_MEANS_DELETE=true면 비어있는 tc_sets도 포함
+# PLAN_JSON (desired plan)
 # ---------------------------
 PLAN_JSON="$(
   run_jq_file "plan_build" '
@@ -113,11 +132,11 @@ PLAN_JSON="$(
         realm_id: $p.realm_id,
         sync_mode: ($p.sync_mode // "replace"),
         allow_delete: ($p.allow_delete // true),
-        tc_prefix_root: ($p.tc_prefix_root // "tc"),
+        terms_prefix_root: ($p.terms_prefix_root // "terms"),
         dry_run: ($p.dry_run // false),
         max_retries: ($p.max_retries // 5),
         backoff_ms: ($p.backoff_ms // 400),
-        tc_empty_means_delete: ($tc_empty_means_delete == "true"),
+        terms_empty_means_delete: ($terms_empty_means_delete == "true"),
 
         scopes: (
           (
@@ -125,37 +144,37 @@ PLAN_JSON="$(
             + (($p.shared_scopes // []) | as_array)
           )
           | map(. as $s | {
-            scope_id:    ($s.scope_id // $s.id // ""),
-            scope_name:  ($s.scope_name // ""),
-            scope_key:   ($s.scope_key // ""),
-            tc_sets:     (($s.tc_sets // {}) | as_object),
-            tc_priority: ($s.tc_priority // "0" | tostring)
-          })
+              scope_id:        ($s.scope_id // $s.id // ""),
+              scope_name:      ($s.scope_name // ""),
+              scope_key:       ($s.scope_key // ""),
+              terms_sets:      (($s.terms_sets // $s.tc_sets // {}) | as_object),
+              terms_priority:  ($s.terms_priority // $s.tc_priority // "0" | tostring)
+            })
           | map(select(.scope_id != ""))
           | map(
-              if ($tc_empty_means_delete == "true") then
-                .                         # empty tc_sets도 포함(삭제 시나리오)
+              if ($terms_empty_means_delete == "true") then
+                .
               else
-                select(.tc_sets | non_empty_obj)   # tc_sets 비어있으면 제외
+                select(.terms_sets | non_empty_obj)
               end
             )
         )
       }
-  ' "$TC_SYNC_PAYLOAD_FILE" --arg tc_empty_means_delete "$TC_EMPTY_MEANS_DELETE"
+  ' "$TERMS_SYNC_PAYLOAD_FILE" --arg terms_empty_means_delete "$TERMS_EMPTY_MEANS_DELETE"
 )"
 dump_json_pretty_from_text "plan.json" "$PLAN_JSON"
 
 REALM_ID="$(jq -r '.realm_id' <<<"$PLAN_JSON")"
 SYNC_MODE="$(jq -r '.sync_mode' <<<"$PLAN_JSON")"
 ALLOW_DELETE="$(jq -r '.allow_delete | if . then "true" else "false" end' <<<"$PLAN_JSON")"
-TC_PREFIX_ROOT="$(jq -r '.tc_prefix_root' <<<"$PLAN_JSON")"
+TERMS_PREFIX_ROOT="$(jq -r '.terms_prefix_root' <<<"$PLAN_JSON")"
 DRY_RUN="$(jq -r '.dry_run | if . then "true" else "false" end' <<<"$PLAN_JSON")"
 MAX_RETRIES="$(jq -r '.max_retries' <<<"$PLAN_JSON")"
 BACKOFF_MS="$(jq -r '.backoff_ms' <<<"$PLAN_JSON")"
-SCOPE_COUNT="$(jq -r '.scopes|length' <<<"$PLAN_JSON")"
-PLAN_EMPTY_DELETE="$(jq -r '.tc_empty_means_delete | if . then "true" else "false" end' <<<"$PLAN_JSON")"
+DESIRED_SCOPE_COUNT="$(jq -r '.scopes|length' <<<"$PLAN_JSON")"
+PLAN_EMPTY_DELETE="$(jq -r '.terms_empty_means_delete | if . then "true" else "false" end' <<<"$PLAN_JSON")"
 
-log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TC_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS scopes=$SCOPE_COUNT tc_empty_means_delete=$PLAN_EMPTY_DELETE"
+log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TERMS_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS desired_scopes=$DESIRED_SCOPE_COUNT terms_empty_means_delete=$PLAN_EMPTY_DELETE"
 
 kc_login_client_credentials 5 400
 
@@ -164,7 +183,11 @@ fetch_scope_json_to() {
   kc_exec get "realms/$REALM_ID/client-scopes/$scope_id" >"$out"
 }
 
-# stdin update
+fetch_all_scopes_json_to() {
+  local out="$1"
+  kc_exec get "realms/$REALM_ID/client-scopes" >"$out"
+}
+
 update_scope_from_file() {
   local scope_id="$1" file="$2"
   [[ -f "$file" ]] || die "update payload file not found (host): $file"
@@ -181,32 +204,35 @@ update_scope_from_file() {
 }
 
 build_update_representation() {
-  local cur_file="$1" desired_tc_sets_json="$2" tc_priority="$3" out_file="$4" sid="$5"
+  local cur_file="$1" desired_terms_sets_json="$2" terms_priority="$3" out_file="$4" sid="$5" delete_only="$6"
 
   dump_json_pretty_from_file "$cur_file" "cur.${sid}.json"
-  dump_json_pretty_from_text "desired.${sid}.json" "$desired_tc_sets_json"
+  dump_json_pretty_from_text "desired.${sid}.json" "$desired_terms_sets_json"
 
-  local safe_tc_sets
-  safe_tc_sets="$(
-    run_jq_stdin "desired_tc_sets_normalize.${sid}" '
+  local safe_terms_sets
+  safe_terms_sets="$(
+    run_jq_stdin "desired_terms_sets_normalize.${sid}" '
       def as_object: if type=="object" then . else {} end;
       . | as_object
-    ' <<<"$desired_tc_sets_json" | jq -c '.'
+    ' <<<"$desired_terms_sets_json" | jq -c '.'
   )"
 
   local program='
     def as_object: if type=="object" then . else {} end;
-    def k($tc_key; $field): "\($prefix).\($tc_key).\($field)";
+    def k($term_key; $field): "\($prefix).\($term_key).\($field)";
+    def is_managed_key($key):
+      ($key | startswith($prefix + "."))
+      or ($key == "terms_priority");
 
-    def desired_tc_map($tc_sets):
-      ($tc_sets | as_object | to_entries)
-      | map(.key as $tc_key | (.value | as_object) as $tc |
+    def desired_terms_map($terms_sets):
+      ($terms_sets | as_object | to_entries)
+      | map(.key as $term_key | (.value | as_object) as $term |
           [
-            {key: k($tc_key;"required"), value: (if ($tc.required // false) then "true" else "false" end)},
-            {key: k($tc_key;"version"),  value: (($tc.version // "")|tostring)},
-            (if ($tc.title? and ($tc.title|tostring|length)>0) then {key:k($tc_key;"title"), value:($tc.title|tostring)} else empty end),
-            (if ($tc.url? and ($tc.url|tostring|length)>0) then {key:k($tc_key;"url"), value:($tc.url|tostring)} else empty end),
-            (if ($tc.template? and ($tc.template|tostring|length)>0) then {key:k($tc_key;"template"), value:($tc.template|tostring)} else empty end)
+            {key: k($term_key;"required"), value: (if ($term.required // false) then "true" else "false" end)},
+            {key: k($term_key;"version"),  value: (($term.version // "")|tostring)},
+            (if ($term.title? and ($term.title|tostring|length)>0) then {key:k($term_key;"title"), value:($term.title|tostring)} else empty end),
+            (if ($term.url? and ($term.url|tostring|length)>0) then {key:k($term_key;"url"), value:($term.url|tostring)} else empty end),
+            (if ($term.template? and ($term.template|tostring|length)>0) then {key:k($term_key;"template"), value:($term.template|tostring)} else empty end)
           ]
       )
       | add
@@ -214,20 +240,21 @@ build_update_representation() {
 
     . as $cur
     | (.attributes // {} | as_object) as $a
-    | desired_tc_map($tc_sets) as $want
-    | ($want + { "tc_priority": ($tc_priority|tostring) }) as $want2
+    | desired_terms_map($terms_sets) as $want
     | (
-        if $mode == "replace" then
-          (if $allow_delete == "true"
-            then ($a | with_entries(select(.key | startswith($prefix + ".") | not)))
-            else $a
-          end)
-          + $want2
+        if $mode == "replace" and $allow_delete == "true" then
+          ($a | with_entries(select(is_managed_key(.key) | not)))
         else
-          $a + $want2
+          $a
         end
-      ) as $new_attrs
-    | ($cur | .attributes = $new_attrs)
+      ) as $base
+    | (
+        if $delete_only == "true" then
+          ($cur | .attributes = $base)
+        else
+          ($cur | .attributes = ($base + $want + { "terms_priority": ($terms_priority|tostring) }))
+        end
+      )
   '
 
   LAST_STEP="build_update_representation.${sid}"
@@ -236,10 +263,11 @@ build_update_representation() {
 
   if ! jq -c \
       --arg mode "$SYNC_MODE" \
-      --arg prefix "$TC_PREFIX_ROOT" \
+      --arg prefix "$TERMS_PREFIX_ROOT" \
       --arg allow_delete "$ALLOW_DELETE" \
-      --arg tc_priority "$tc_priority" \
-      --argjson tc_sets "$safe_tc_sets" \
+      --arg terms_priority "$terms_priority" \
+      --arg delete_only "$delete_only" \
+      --argjson terms_sets "$safe_terms_sets" \
       "$program" "$cur_file" \
       >"$out_file" 2>"$DUMP_DIR/jq.build_update_representation.${sid}.err"
   then
@@ -251,122 +279,302 @@ build_update_representation() {
   dump_json_pretty_from_file "$out_file" "upd.${sid}.json"
 }
 
-print_diff() {
+# 요약 + 상세 diff 로그
+print_diff_summary() {
   local cur="$1" upd="$2" sid="$3"
+
   jq -r --arg sid "$sid" '
     (.attributes // {}) as $a
     | input | (.attributes // {}) as $b
     | ($b | keys - ($a | keys)) as $added
     | ($a | keys - ($b | keys)) as $removed
     | ([($b|keys[]) as $k | select(($a[$k] // null) != ($b[$k] // null)) | $k]) as $changed
-    | "[SCOPE \($sid)] +\($added|length) -\($removed|length) ~\($changed|length)"
+    | "[DIFF] scope_id=\($sid) summary add=\($added|length) delete=\($removed|length) change=\($changed|length)"
   ' "$cur" "$upd"
 }
 
-# verify 정책:
-# - tc_sets가 비어있지 않은 scope는 prefix 키가 있어야 한다(기본)
-# - TC_EMPTY_MEANS_DELETE=true & tc_sets empty면: "prefix 키가 없어도 OK" (삭제 시나리오)
-verify_scope_tc_policy() {
-  local scope_id="$1" desired_tc_sets_json="$2"
+print_diff_details() {
+  local cur="$1" upd="$2" sid="$3" limit="$4"
 
-  # tc_sets 비었는지
-  local tc_count
-  tc_count="$(jq -r 'if type=="object" then (keys|length) else 0 end' <<<"$desired_tc_sets_json")"
+  jq -r --arg sid "$sid" --argjson limit "$limit" '
+    (.attributes // {}) as $a
+    | input | (.attributes // {}) as $b
+    | (
+        [ ($b | keys - ($a | keys))[] | {
+            type: "ADD",
+            key: .,
+            before: null,
+            after: $b[.]
+          } ]
+        +
+        [ ($a | keys - ($b | keys))[] | {
+            type: "DELETE",
+            key: .,
+            before: $a[.],
+            after: null
+          } ]
+        +
+        [ ($b|keys[]) as $k
+          | select(($a[$k] // null) != ($b[$k] // null))
+          | select(($a[$k] // "__MISSING__") != "__MISSING__")
+          | select(($b[$k] // "__MISSING__") != "__MISSING__")
+          | {
+              type: "CHANGE",
+              key: $k,
+              before: $a[$k],
+              after: $b[$k]
+            }
+        ]
+      )[:$limit]
+    | .[]
+    | if .type == "ADD" then
+        "[DIFF] scope_id=\($sid) ADD \(.key)=\(.after)"
+      elif .type == "DELETE" then
+        "[DIFF] scope_id=\($sid) DELETE \(.key) (was=\(.before))"
+      else
+        "[DIFF] scope_id=\($sid) CHANGE \(.key): \(.before) -> \(.after)"
+      end
+  ' "$cur" "$upd"
+}
 
-  # empty=delete 모드 + empty tc_sets => prefix 키가 "없어도" 정상
-  if [[ "$PLAN_EMPTY_DELETE" == "true" && "$tc_count" -eq 0 ]]; then
-    log "VERIFY SKIP(scope_id=$scope_id): tc_sets empty and tc_empty_means_delete=true (prefix keys may be absent)"
-    return 0
-  fi
+verify_scope_terms_policy() {
+  local scope_id="$1" should_exist="$2"
 
-  # 기본: prefix 키가 반드시 있어야 함
   local tmp
-  tmp="$(mktemp -t tc_verify.XXXXXX.json)"
+  tmp="$(mktemp -t terms_verify.XXXXXX.json)"
+
   if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" fetch_scope_json_to "$scope_id" "$tmp"; then
     log "ERROR: verify fetch failed scope_id=$scope_id"
     rm -f "$tmp" || true
     return 1
   fi
 
-  if jq -e --arg p "$TC_PREFIX_ROOT" '(.attributes // {}) | keys | map(startswith($p + ".")) | any' "$tmp" >/dev/null; then
+  if [[ "$should_exist" == "true" ]]; then
+    if jq -e --arg p "$TERMS_PREFIX_ROOT" '
+      (.attributes // {}) as $a
+      | (($a | keys | map(startswith($p + ".")) | any) and ($a | has("terms_priority")))
+    ' "$tmp" >/dev/null; then
+      rm -f "$tmp" || true
+      return 0
+    fi
+
+    log "ERROR: verify failed. expected managed terms keys to exist. scope_id=$scope_id"
+    jq -r --arg p "$TERMS_PREFIX_ROOT" '
+      (.attributes // {}) | to_entries
+      | map(select((.key | startswith($p + ".")) or .key == "terms_priority"))
+      | .[:100]
+      | if length == 0 then "(no managed terms attributes)" else (map("\(.key)=\(.value)") | join("\n")) end
+    ' "$tmp" >&2 || true
+
+    rm -f "$tmp" || true
+    return 1
+  fi
+
+  if jq -e --arg p "$TERMS_PREFIX_ROOT" '
+    (.attributes // {}) | to_entries
+    | map(select((.key | startswith($p + ".")) or .key == "terms_priority"))
+    | length == 0
+  ' "$tmp" >/dev/null; then
     rm -f "$tmp" || true
     return 0
   fi
 
-  log "ERROR: verify failed. No keys with prefix=${TC_PREFIX_ROOT}. scope_id=$scope_id"
-  jq -r --arg p "$TC_PREFIX_ROOT" '
+  log "ERROR: verify failed. expected managed terms keys to be removed. scope_id=$scope_id"
+  jq -r --arg p "$TERMS_PREFIX_ROOT" '
     (.attributes // {}) | to_entries
-    | map(select(.key | startswith($p + ".")))
-    | .[:50]
-    | if length == 0 then "(no matching attributes)" else (map("\(.key)=\(.value)") | join("\n")) end
+    | map(select((.key | startswith($p + ".")) or .key == "terms_priority"))
+    | .[:100]
+    | if length == 0 then "(no managed terms attributes)" else (map("\(.key)=\(.value)") | join("\n")) end
   ' "$tmp" >&2 || true
 
   rm -f "$tmp" || true
   return 1
 }
 
+# ---------------------------
+# Discover current managed scopes in Keycloak
+# ---------------------------
+ALL_SCOPES_FILE="$(mktemp -t terms_all_scopes.XXXXXX.json)"
+with_retry "$MAX_RETRIES" "$BACKOFF_MS" fetch_all_scopes_json_to "$ALL_SCOPES_FILE"
+dump_json_pretty_from_file "$ALL_SCOPES_FILE" "all_scopes.json"
+
+CURRENT_MANAGED_SCOPES_JSON="$(
+  run_jq_file "current_managed_scopes" '
+    def as_array:  if type=="array"  then . else [] end;
+    def as_object: if type=="object" then . else {} end;
+
+    . | as_array
+    | map(
+        select(
+          (
+            (.attributes // {} | as_object | keys | map(startswith($prefix + ".")) | any)
+          )
+          or
+          (
+            (.attributes // {} | as_object | has("terms_priority"))
+          )
+        )
+        | {
+            scope_id: (.id // ""),
+            scope_name: (.name // "")
+          }
+      )
+    | map(select(.scope_id != ""))
+  ' "$ALL_SCOPES_FILE" --arg prefix "$TERMS_PREFIX_ROOT"
+)"
+dump_json_pretty_from_text "current_managed_scopes.json" "$CURRENT_MANAGED_SCOPES_JSON"
+
+CURRENT_MANAGED_SCOPE_COUNT="$(jq -r 'length' <<<"$CURRENT_MANAGED_SCOPES_JSON")"
+log "Discovered current managed scopes in Keycloak: $CURRENT_MANAGED_SCOPE_COUNT"
+
+# ---------------------------
+# desired ∪ current_managed
+# ---------------------------
+ALL_SCOPE_IDS_JSON="$(
+  jq -cn \
+    --argjson desired "$(jq -c '.scopes' <<<"$PLAN_JSON")" \
+    --argjson current "$CURRENT_MANAGED_SCOPES_JSON" '
+      (
+        ($desired | map(.scope_id))
+        + ($current | map(.scope_id))
+      )
+      | unique
+  '
+)"
+dump_json_pretty_from_text "all_scope_ids.json" "$ALL_SCOPE_IDS_JSON"
+
+TOTAL_SCOPE_COUNT="$(jq -r 'length' <<<"$ALL_SCOPE_IDS_JSON")"
+log "Reconcile target scopes: total=$TOTAL_SCOPE_COUNT desired=$DESIRED_SCOPE_COUNT current_managed=$CURRENT_MANAGED_SCOPE_COUNT"
+
 rc=0
-if [[ "$SCOPE_COUNT" -eq 0 ]]; then
-  log "No TC target scopes in plan. Nothing to do."
+if [[ "$TOTAL_SCOPE_COUNT" -eq 0 ]]; then
+  log "No managed terms scope found in desired/current state. Nothing to do."
+  rm -f "$ALL_SCOPES_FILE" || true
   exit 0
 fi
 
-mapfile -t SCOPE_IDS < <(jq -r '.scopes[].scope_id' <<<"$PLAN_JSON")
+mapfile -t SCOPE_IDS < <(jq -r '.[]' <<<"$ALL_SCOPE_IDS_JSON")
 for sid in "${SCOPE_IDS[@]}"; do
   [[ -n "$sid" ]] || continue
 
-  cur="$(mktemp -t tc_cur.XXXXXX.json)"
-  upd="$(mktemp -t tc_upd.XXXXXX.json)"
-  cleanup_files() { rm -f "$cur" "$upd" 2>/dev/null || true; }
-  trap cleanup_files RETURN
+  cur="$(mktemp -t terms_cur.XXXXXX.json)"
+  upd="$(mktemp -t terms_upd.XXXXXX.json)"
 
   if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" fetch_scope_json_to "$sid" "$cur"; then
     log "ERROR: fetch failed scope_id=$sid"
+    rm -f "$cur" "$upd" 2>/dev/null || true
     rc=1
     continue
   fi
 
-  desired_tc_sets="$(
-    run_jq_stdin "desired_tc_sets_select.${sid}" '
-      def as_array:  if type=="array"  then . else [] end;
-      def as_object: if type=="object" then . else {} end;
-
-      (.scopes // [] | as_array)
-      | map(select(.scope_id == $sid) | (.tc_sets // {} | as_object))
-      | .[0] // {}
-    ' --arg sid "$sid" <<<"$PLAN_JSON" | jq -c '.'
+  SCOPE_IN_PLAN="$(
+    jq -r --arg sid "$sid" '
+      any(.scopes[]?; .scope_id == $sid)
+    ' <<<"$PLAN_JSON"
   )"
 
-  desired_tc_priority="$(
-  run_jq_stdin "desired_tc_priority_select.${sid}" '
-    def as_array: if type=="array" then . else [] end;
+  desired_terms_sets='{}'
+  desired_terms_priority='0'
+  delete_only='false'
+  should_exist='false'
+  action='SKIP'
 
-    (.scopes // [] | as_array)
-    | map(select(.scope_id == $sid) | (.tc_priority // "0" | tostring))
-    | .[0] // "0"
-  ' --arg sid "$sid" <<<"$PLAN_JSON" | jq -r '.'
-)"
+  if [[ "$SCOPE_IN_PLAN" == "true" ]]; then
+    desired_terms_sets="$(
+      run_jq_stdin "desired_terms_sets_select.${sid}" '
+        def as_array:  if type=="array"  then . else [] end;
+        def as_object: if type=="object" then . else {} end;
 
+        (.scopes // [] | as_array)
+        | map(select(.scope_id == $sid) | (.terms_sets // {} | as_object))
+        | .[0] // {}
+      ' --arg sid "$sid" <<<"$PLAN_JSON" | jq -c '.'
+    )"
 
-  build_update_representation "$cur" "$desired_tc_sets" "$desired_tc_priority" "$upd" "$sid"
-  print_diff "$cur" "$upd" "$sid" >&2
+    desired_terms_priority="$(
+      run_jq_stdin "desired_terms_priority_select.${sid}" '
+        def as_array: if type=="array" then . else [] end;
+
+        (.scopes // [] | as_array)
+        | map(select(.scope_id == $sid) | (.terms_priority // "0" | tostring))
+        | .[0] // "0"
+      ' --arg sid "$sid" <<<"$PLAN_JSON" | jq -r '.'
+    )"
+
+    terms_count="$(jq -r 'if type=="object" then (keys|length) else 0 end' <<<"$desired_terms_sets")"
+
+    if [[ "$terms_count" -eq 0 ]]; then
+      if [[ "$PLAN_EMPTY_DELETE" == "true" && "$ALLOW_DELETE" == "true" ]]; then
+        delete_only='true'
+        should_exist='false'
+        action='DELETE_ONLY'
+        log "[PLAN] scope_id=$sid action=$action reason=desired_empty_terms_sets"
+      else
+        action='SKIP'
+        log "[PLAN] scope_id=$sid action=$action reason=desired_empty_terms_sets_and_delete_disabled"
+        rm -f "$cur" "$upd" 2>/dev/null || true
+        continue
+      fi
+    else
+      delete_only='false'
+      should_exist='true'
+      action='UPSERT'
+      log "[PLAN] scope_id=$sid action=$action desired_terms=$terms_count priority=$desired_terms_priority"
+    fi
+  else
+    if [[ "$ALLOW_DELETE" == "true" ]]; then
+      delete_only='true'
+      should_exist='false'
+      action='DELETE_ONLY'
+      log "[PLAN] scope_id=$sid action=$action reason=not_in_desired_plan"
+    else
+      action='SKIP'
+      log "[PLAN] scope_id=$sid action=$action reason=not_in_desired_plan_and_allow_delete_false"
+      rm -f "$cur" "$upd" 2>/dev/null || true
+      continue
+    fi
+  fi
+
+  if ! build_update_representation "$cur" "$desired_terms_sets" "$desired_terms_priority" "$upd" "$sid" "$delete_only"; then
+    rm -f "$cur" "$upd" 2>/dev/null || true
+    rc=1
+    continue
+  fi
+
+  print_diff_summary "$cur" "$upd" "$sid" >&2
+  print_diff_details "$cur" "$upd" "$sid" "$DIFF_LOG_LIMIT" >&2
+
+  if cmp -s "$cur" "$upd"; then
+    log "[NOOP] scope_id=$sid action=$action no changes detected"
+    rm -f "$cur" "$upd" 2>/dev/null || true
+    continue
+  fi
 
   if [[ "$DRY_RUN" == "true" ]]; then
-    log "[DRY-RUN] skip update scope_id=$sid"
+    log "[DRY-RUN] scope_id=$sid action=$action update skipped"
+    rm -f "$cur" "$upd" 2>/dev/null || true
     continue
   fi
 
-  log "UPDATING scope_id=$sid (stdin)"
+  log "[APPLY] scope_id=$sid action=$action updating"
   if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" update_scope_from_file "$sid" "$upd"; then
+    rm -f "$cur" "$upd" 2>/dev/null || true
     rc=1
     continue
   fi
-  log "UPDATED scope_id=$sid"
 
-  if ! verify_scope_tc_policy "$sid" "$desired_tc_sets"; then
+  log "[APPLY] scope_id=$sid action=$action updated"
+
+  if ! verify_scope_terms_policy "$sid" "$should_exist"; then
+    rm -f "$cur" "$upd" 2>/dev/null || true
     rc=1
     continue
   fi
+
+  log "[VERIFY] scope_id=$sid action=$action result=success"
+
+  rm -f "$cur" "$upd" 2>/dev/null || true
 done
 
+rm -f "$ALL_SCOPES_FILE" 2>/dev/null || true
 exit "$rc"
