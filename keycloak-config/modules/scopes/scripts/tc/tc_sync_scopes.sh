@@ -222,26 +222,31 @@ build_update_representation() {
 
   local program='
     def as_object: if type=="object" then . else {} end;
+
     def is_managed_key($key):
       ($key == "terms_config")
       or ($key == "terms_priority")
       or ($key | startswith($prefix + "."));
 
     . as $cur
-    | (.attributes // {} | as_object) as $a
-    | ($a | with_entries(select(is_managed_key(.key) | not))) as $base
-    | (
-        if $delete_only == "true" then
-          ($cur | .attributes = $base)
-        else
-          ($cur | .attributes = (
-            $base + {
-              "terms_config": $terms_config_json_string,
-              "terms_priority": ($terms_priority|tostring)
-            }
-          ))
-        end
-      )
+    | (.attributes // {} | as_object) as $attrs
+    | ($attrs | with_entries(select(is_managed_key(.key) | not))) as $base_attrs
+    | {
+        id: $cur.id,
+        name: $cur.name,
+        protocol: ($cur.protocol // "openid-connect"),
+        attributes:
+          (
+            if $delete_only == "true" then
+              $base_attrs
+            else
+              $base_attrs + {
+                "terms_config": $terms_config_json_string,
+                "terms_priority": ($terms_priority | tostring)
+              }
+            end
+          )
+      }
   '
 
   LAST_STEP="build_update_representation.${sid}"
@@ -249,8 +254,6 @@ build_update_representation() {
   printf '%s\n' "$program" > "$DUMP_DIR/jq.build_update_representation.${sid}.jq"
 
   if ! jq -c \
-      --arg mode "$SYNC_MODE" \
-      --arg allow_delete "$ALLOW_DELETE" \
       --arg prefix "$TERMS_PREFIX_ROOT" \
       --arg terms_priority "$terms_priority" \
       --arg delete_only "$delete_only" \
