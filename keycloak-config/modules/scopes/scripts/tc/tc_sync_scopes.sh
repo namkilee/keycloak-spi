@@ -147,11 +147,11 @@ PLAN_JSON="$(
             + (($p.shared_scopes // []) | as_array)
           )
           | map(. as $s | {
-              scope_id:        ($s.scope_id // $s.id // ""),
-              scope_name:      ($s.scope_name // ""),
-              scope_key:       ($s.scope_key // ""),
-              terms_sets:      (($s.terms_sets // {}) | as_object),
-              terms_priority:  ($s.terms_priority // "0" | tostring)
+              scope_id:       ($s.scope_id // $s.id // ""),
+              scope_name:     ($s.scope_name // ""),
+              scope_key:      ($s.scope_key // ""),
+              terms_sets:     (($s.terms_sets // {}) | as_object),
+              terms_priority: ($s.terms_priority // "0" | tostring)
             })
           | map(select(.scope_id != ""))
           | map(
@@ -224,17 +224,12 @@ build_update_representation() {
     def as_object: if type=="object" then . else {} end;
     def is_managed_key($key):
       ($key == "terms_config")
-      or ($key == "terms_priority");
+      or ($key == "terms_priority")
+      or ($key | startswith($prefix + "."));
 
     . as $cur
     | (.attributes // {} | as_object) as $a
-    | (
-        if $mode == "replace" and $allow_delete == "true" then
-          ($a | with_entries(select(is_managed_key(.key) | not)))
-        else
-          ($a | with_entries(select(is_managed_key(.key) | not)))
-        end
-      ) as $base
+    | ($a | with_entries(select(is_managed_key(.key) | not))) as $base
     | (
         if $delete_only == "true" then
           ($cur | .attributes = $base)
@@ -256,6 +251,7 @@ build_update_representation() {
   if ! jq -c \
       --arg mode "$SYNC_MODE" \
       --arg allow_delete "$ALLOW_DELETE" \
+      --arg prefix "$TERMS_PREFIX_ROOT" \
       --arg terms_priority "$terms_priority" \
       --arg delete_only "$delete_only" \
       --arg terms_config_json_string "$normalized_terms_config" \
@@ -339,6 +335,8 @@ verify_scope_terms_policy() {
     return 1
   fi
 
+  dump_json_pretty_from_file "$tmp" "verify.${scope_id}.json"
+
   if [[ "$should_exist" == "true" ]]; then
     if jq -e '
       (.attributes // {}) as $a
@@ -349,9 +347,9 @@ verify_scope_terms_policy() {
     fi
 
     log "ERROR: verify failed. expected managed terms keys to exist. scope_id=$scope_id"
-    jq -r '
+    jq -r --arg p "$TERMS_PREFIX_ROOT" '
       (.attributes // {}) | to_entries
-      | map(select(.key == "terms_config" or .key == "terms_priority"))
+      | map(select(.key == "terms_config" or .key == "terms_priority" or (.key | startswith($p + "."))))
       | .[:100]
       | if length == 0 then "(no managed terms attributes)" else (map("\(.key)=\(.value)") | join("\n")) end
     ' "$tmp" >&2 || true
@@ -360,18 +358,22 @@ verify_scope_terms_policy() {
     return 1
   fi
 
-  if jq -e '
+  if jq -e --arg p "$TERMS_PREFIX_ROOT" '
     (.attributes // {}) as $a
-    | (($a | has("terms_config") | not) and ($a | has("terms_priority") | not))
+    | (
+        ($a | has("terms_config") | not)
+        and ($a | has("terms_priority") | not)
+        and (($a | keys | map(startswith($p + ".")) | any) | not)
+      )
   ' "$tmp" >/dev/null; then
     rm -f "$tmp" || true
     return 0
   fi
 
-  log "ERROR: verify failed. expected managed terms keys to be removed. scope_id=$scope_id"
-  jq -r '
+  log "ERROR: verify failed. expected managed terms key to be removed. scope_id=$scope_id"
+  jq -r --arg p "$TERMS_PREFIX_ROOT" '
     (.attributes // {}) | to_entries
-    | map(select(.key == "terms_config" or .key == "terms_priority"))
+    | map(select(.key == "terms_config" or .key == "terms_priority" or (.key | startswith($p + "."))))
     | .[:100]
     | if length == 0 then "(no managed terms attributes)" else (map("\(.key)=\(.value)") | join("\n")) end
   ' "$tmp" >&2 || true
@@ -402,6 +404,10 @@ CURRENT_MANAGED_SCOPES_JSON="$(
           (
             (.attributes // {} | as_object | has("terms_priority"))
           )
+          or
+          (
+            (.attributes // {} | as_object | keys | map(startswith($prefix + ".")) | any)
+          )
         )
         | {
             scope_id: (.id // ""),
@@ -409,7 +415,7 @@ CURRENT_MANAGED_SCOPES_JSON="$(
           }
       )
     | map(select(.scope_id != ""))
-  ' "$ALL_SCOPES_FILE"
+  ' "$ALL_SCOPES_FILE" --arg prefix "$TERMS_PREFIX_ROOT"
 )"
 dump_json_pretty_from_text "current_managed_scopes.json" "$CURRENT_MANAGED_SCOPES_JSON"
 
