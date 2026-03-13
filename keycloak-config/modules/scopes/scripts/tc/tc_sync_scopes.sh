@@ -14,10 +14,6 @@ JQ_DEBUG="${JQ_DEBUG:-0}"
 DUMP_DIR="${DUMP_DIR:-.terms_sync_debug}"
 LAST_STEP="init"
 
-# true  -> payload에 terms_sets = {} 로 들어온 scope도 "삭제 대상"으로 plan 포함
-# false -> terms_sets 비어있으면 desired plan 에서 제외
-TERMS_EMPTY_MEANS_DELETE="${TERMS_EMPTY_MEANS_DELETE:-false}"  # true|false
-
 # 상세 diff 로그 출력 개수 제한
 DIFF_LOG_LIMIT="${DIFF_LOG_LIMIT:-200}"
 
@@ -139,7 +135,6 @@ PLAN_JSON="$(
         dry_run: ($p.dry_run // false),
         max_retries: ($p.max_retries // 5),
         backoff_ms: ($p.backoff_ms // 400),
-        terms_empty_means_delete: ($terms_empty_means_delete == "true"),
 
         scopes: (
           (
@@ -154,16 +149,9 @@ PLAN_JSON="$(
               terms_priority: ($s.terms_priority // "0" | tostring)
             })
           | map(select(.scope_id != ""))
-          | map(
-              if ($terms_empty_means_delete == "true") then
-                .
-              else
-                select(.terms_sets | non_empty_obj)
-              end
-            )
         )
       }
-  ' "$TERMS_SYNC_PAYLOAD_FILE" --arg terms_empty_means_delete "$TERMS_EMPTY_MEANS_DELETE"
+  ' "$TERMS_SYNC_PAYLOAD_FILE"
 )"
 dump_json_pretty_from_text "plan.json" "$PLAN_JSON"
 
@@ -175,9 +163,8 @@ DRY_RUN="$(jq -r '.dry_run | if . then "true" else "false" end' <<<"$PLAN_JSON")
 MAX_RETRIES="$(jq -r '.max_retries' <<<"$PLAN_JSON")"
 BACKOFF_MS="$(jq -r '.backoff_ms' <<<"$PLAN_JSON")"
 DESIRED_SCOPE_COUNT="$(jq -r '.scopes|length' <<<"$PLAN_JSON")"
-PLAN_EMPTY_DELETE="$(jq -r '.terms_empty_means_delete | if . then "true" else "false" end' <<<"$PLAN_JSON")"
 
-log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TERMS_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS desired_scopes=$DESIRED_SCOPE_COUNT terms_empty_means_delete=$PLAN_EMPTY_DELETE"
+log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TERMS_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS desired_scopes=$DESIRED_SCOPE_COUNT"
 
 kc_login_client_credentials 5 400
 
@@ -207,7 +194,7 @@ update_scope_from_file() {
 }
 
 build_update_representation() {
-  local cur_file="$1" desired_terms_sets_json="$2" terms_priority="$3" out_file="$4" sid="$5" delete_only="$6"
+  local cur_file="$1" desired_terms_sets_json="$2" terms_priority="$3" out_file="$4" sid="$5"
 
   dump_json_pretty_from_file "$cur_file" "cur.${sid}.json"
   dump_json_pretty_from_text "desired.${sid}.json" "$desired_terms_sets_json"
@@ -223,28 +210,18 @@ build_update_representation() {
   local program='
     def as_object: if type=="object" then . else {} end;
 
-    def is_managed_key($key):
-      ($key == "terms_config")
-      or ($key == "terms_priority")
-      or ($key | startswith($prefix + "."));
-
     . as $cur
     | (.attributes // {} | as_object) as $attrs
-    | ($attrs | with_entries(select(is_managed_key(.key) | not))) as $base_attrs
     | {
         id: $cur.id,
         name: $cur.name,
         protocol: ($cur.protocol // "openid-connect"),
         attributes:
           (
-            if $delete_only == "true" then
-              $base_attrs
-            else
-              $base_attrs + {
-                "terms_config": $terms_config_json_string,
-                "terms_priority": ($terms_priority | tostring)
-              }
-            end
+            $attrs + {
+              "terms_config": $terms_config_json_string,
+              "terms_priority": ($terms_priority | tostring)
+            }
           )
       }
   '
@@ -254,9 +231,7 @@ build_update_representation() {
   printf '%s\n' "$program" > "$DUMP_DIR/jq.build_update_representation.${sid}.jq"
 
   if ! jq -c \
-      --arg prefix "$TERMS_PREFIX_ROOT" \
       --arg terms_priority "$terms_priority" \
-      --arg delete_only "$delete_only" \
       --arg terms_config_json_string "$normalized_terms_config" \
       "$program" "$cur_file" \
       >"$out_file" 2>"$DUMP_DIR/jq.build_update_representation.${sid}.err"
@@ -327,7 +302,7 @@ print_diff_details() {
 }
 
 verify_scope_terms_policy() {
-  local scope_id="$1" should_exist="$2"
+  local scope_id="$1" expected_terms_config="$2" expected_terms_priority="$3"
 
   local tmp
   tmp="$(mktemp -t terms_verify.XXXXXX.json)"
@@ -340,45 +315,22 @@ verify_scope_terms_policy() {
 
   dump_json_pretty_from_file "$tmp" "verify.${scope_id}.json"
 
-  if [[ "$should_exist" == "true" ]]; then
-    if jq -e '
+  if jq -e     --arg expected_terms_config "$expected_terms_config"     --arg expected_terms_priority "$expected_terms_priority" '
       (.attributes // {}) as $a
-      | (($a | has("terms_config")) and ($a | has("terms_priority")))
+      | (($a.terms_config // "") == $expected_terms_config)
+      and (($a.terms_priority // "") == $expected_terms_priority)
     ' "$tmp" >/dev/null; then
-      rm -f "$tmp" || true
-      return 0
-    fi
-
-    log "ERROR: verify failed. expected managed terms keys to exist. scope_id=$scope_id"
-    jq -r --arg p "$TERMS_PREFIX_ROOT" '
-      (.attributes // {}) | to_entries
-      | map(select(.key == "terms_config" or .key == "terms_priority" or (.key | startswith($p + "."))))
-      | .[:100]
-      | if length == 0 then "(no managed terms attributes)" else (map("\(.key)=\(.value)") | join("\n")) end
-    ' "$tmp" >&2 || true
-
-    rm -f "$tmp" || true
-    return 1
-  fi
-
-  if jq -e --arg p "$TERMS_PREFIX_ROOT" '
-    (.attributes // {}) as $a
-    | (
-        ($a | has("terms_config") | not)
-        and ($a | has("terms_priority") | not)
-        and (($a | keys | map(startswith($p + ".")) | any) | not)
-      )
-  ' "$tmp" >/dev/null; then
     rm -f "$tmp" || true
     return 0
   fi
 
-  log "ERROR: verify failed. expected managed terms key to be removed. scope_id=$scope_id"
-  jq -r --arg p "$TERMS_PREFIX_ROOT" '
-    (.attributes // {}) | to_entries
-    | map(select(.key == "terms_config" or .key == "terms_priority" or (.key | startswith($p + "."))))
-    | .[:100]
-    | if length == 0 then "(no managed terms attributes)" else (map("\(.key)=\(.value)") | join("\n")) end
+  log "ERROR: verify failed. canonical attributes mismatch. scope_id=$scope_id"
+  jq -r --arg expected_terms_config "$expected_terms_config" --arg expected_terms_priority "$expected_terms_priority" '
+    (.attributes // {}) as $a
+    | "expected terms_config=\($expected_terms_config)",
+      "actual   terms_config=\($a.terms_config // "")",
+      "expected terms_priority=\($expected_terms_priority)",
+      "actual   terms_priority=\($a.terms_priority // "")"
   ' "$tmp" >&2 || true
 
   rm -f "$tmp" || true
@@ -407,10 +359,6 @@ CURRENT_MANAGED_SCOPES_JSON="$(
           (
             (.attributes // {} | as_object | has("terms_priority"))
           )
-          or
-          (
-            (.attributes // {} | as_object | keys | map(startswith($prefix + ".")) | any)
-          )
         )
         | {
             scope_id: (.id // ""),
@@ -418,7 +366,7 @@ CURRENT_MANAGED_SCOPES_JSON="$(
           }
       )
     | map(select(.scope_id != ""))
-  ' "$ALL_SCOPES_FILE" --arg prefix "$TERMS_PREFIX_ROOT"
+  ' "$ALL_SCOPES_FILE"
 )"
 dump_json_pretty_from_text "current_managed_scopes.json" "$CURRENT_MANAGED_SCOPES_JSON"
 
@@ -473,8 +421,6 @@ for sid in "${SCOPE_IDS[@]}"; do
 
   desired_terms_sets='{}'
   desired_terms_priority='0'
-  delete_only='false'
-  should_exist='false'
   action='SKIP'
 
   if [[ "$SCOPE_IN_PLAN" == "true" ]]; then
@@ -500,40 +446,23 @@ for sid in "${SCOPE_IDS[@]}"; do
     )"
 
     terms_count="$(jq -r 'if type=="object" then (keys|length) else 0 end' <<<"$desired_terms_sets")"
-
-    if [[ "$terms_count" -eq 0 ]]; then
-      if [[ "$PLAN_EMPTY_DELETE" == "true" && "$ALLOW_DELETE" == "true" ]]; then
-        delete_only='true'
-        should_exist='false'
-        action='DELETE_ONLY'
-        log "[PLAN] scope_id=$sid action=$action reason=desired_empty_terms_sets"
-      else
-        action='SKIP'
-        log "[PLAN] scope_id=$sid action=$action reason=desired_empty_terms_sets_and_delete_disabled"
-        rm -f "$cur" "$upd" 2>/dev/null || true
-        continue
-      fi
-    else
-      delete_only='false'
-      should_exist='true'
-      action='UPSERT'
-      log "[PLAN] scope_id=$sid action=$action desired_terms=$terms_count priority=$desired_terms_priority"
-    fi
+    action='UPSERT'
+    log "[PLAN] scope_id=$sid action=$action desired_terms=$terms_count priority=$desired_terms_priority"
   else
-    if [[ "$ALLOW_DELETE" == "true" ]]; then
-      delete_only='true'
-      should_exist='false'
-      action='DELETE_ONLY'
-      log "[PLAN] scope_id=$sid action=$action reason=not_in_desired_plan"
-    else
-      action='SKIP'
-      log "[PLAN] scope_id=$sid action=$action reason=not_in_desired_plan_and_allow_delete_false"
-      rm -f "$cur" "$upd" 2>/dev/null || true
-      continue
-    fi
+    desired_terms_sets='{}'
+    desired_terms_priority='0'
+    action='UPSERT_EMPTY'
+    log "[PLAN] scope_id=$sid action=$action reason=not_in_desired_plan"
   fi
 
-  if ! build_update_representation "$cur" "$desired_terms_sets" "$desired_terms_priority" "$upd" "$sid" "$delete_only"; then
+  normalized_terms_config="$(
+    run_jq_stdin "verify_terms_config_normalize.${sid}" '
+      def as_object: if type=="object" then . else {} end;
+      . | as_object
+    ' <<<"$desired_terms_sets" | jq -c '.'
+  )"
+
+  if ! build_update_representation "$cur" "$desired_terms_sets" "$desired_terms_priority" "$upd" "$sid"; then
     rm -f "$cur" "$upd" 2>/dev/null || true
     rc=1
     continue
@@ -563,7 +492,7 @@ for sid in "${SCOPE_IDS[@]}"; do
 
   log "[APPLY] scope_id=$sid action=$action updated"
 
-  if ! verify_scope_terms_policy "$sid" "$should_exist"; then
+  if ! verify_scope_terms_policy "$sid" "$normalized_terms_config" "$desired_terms_priority"; then
     rm -f "$cur" "$upd" 2>/dev/null || true
     rc=1
     continue
