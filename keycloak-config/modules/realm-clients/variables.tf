@@ -50,13 +50,13 @@ variable "approval_portal_url" {
 }
 
 # =========================
-# TC Sync 운영 정책/보호장치
+# Terms Sync 운영 정책/보호장치
 # =========================
-variable "tc_sync" {
+variable "terms_sync" {
   type = object({
     mode           = optional(string, "replace") # replace | merge
     allow_delete   = optional(bool, true)
-    tc_prefix_root = optional(string, "tc")
+    terms_prefix_root = optional(string, "terms")
     dry_run        = optional(bool, false)
 
     max_retries = optional(number, 5)
@@ -67,20 +67,20 @@ variable "tc_sync" {
   default = {}
 
   validation {
-    condition     = contains(["replace", "merge"], try(var.tc_sync.mode, "replace"))
-    error_message = "tc_sync.mode must be one of: replace, merge."
+    condition     = contains(["replace", "merge"], try(var.terms_sync.mode, "replace"))
+    error_message = "terms_sync.mode must be one of: replace, merge."
   }
   validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9_-]*$", try(var.tc_sync.tc_prefix_root, "tc")))
-    error_message = "tc_sync.tc_prefix_root must match ^[a-z0-9][a-z0-9_-]*$."
+    condition     = can(regex("^[a-z0-9][a-z0-9_-]*$", try(var.terms_sync.terms_prefix_root, "terms")))
+    error_message = "terms_sync.terms_prefix_root must match ^[a-z0-9][a-z0-9_-]*$."
   }
   validation {
-    condition     = try(var.tc_sync.max_retries, 5) >= 1 && try(var.tc_sync.max_retries, 5) <= 20
-    error_message = "tc_sync.max_retries must be between 1 and 20."
+    condition     = try(var.terms_sync.max_retries, 5) >= 1 && try(var.terms_sync.max_retries, 5) <= 20
+    error_message = "terms_sync.max_retries must be between 1 and 20."
   }
   validation {
-    condition     = try(var.tc_sync.backoff_ms, 400) >= 100 && try(var.tc_sync.backoff_ms, 400) <= 5000
-    error_message = "tc_sync.backoff_ms must be between 100 and 5000."
+    condition     = try(var.terms_sync.backoff_ms, 400) >= 100 && try(var.terms_sync.backoff_ms, 400) <= 5000
+    error_message = "terms_sync.backoff_ms must be between 100 and 5000."
   }
 }
 
@@ -97,13 +97,14 @@ variable "shared_scopes" {
       config          = map(string)
     })), [])
 
-    tc_sets = optional(map(object({
-      required = bool
-      version  = string
-      title    = optional(string)
-      url      = optional(string)
-      template = optional(string)
-    })), {})
+    terms_config = optional(object({
+      terms = optional(map(object({
+        required = bool
+        version  = string
+        title    = string
+        url      = optional(string)
+      })), {})
+    }), { terms = {} })
   }))
 
   default     = {}
@@ -117,31 +118,31 @@ variable "shared_scopes" {
   validation {
     condition = alltrue(flatten([
       for scope_key, scope in var.shared_scopes : [
-        for tc_key, tc in try(scope.tc_sets, {}) :
-        can(regex("^[a-z0-9][a-z0-9_-]*$", tc_key))
+        for terms_key, term in try(scope.terms_config.terms, {}) :
+        can(regex("^[a-z0-9][a-z0-9_-]*$", terms_key))
       ]
     ]))
-    error_message = "shared_scopes[*].tc_sets keys must match ^[a-z0-9][a-z0-9_-]*$."
+    error_message = "shared_scopes[*].terms_config keys must match ^[a-z0-9][a-z0-9_-]*$."
   }
 
   validation {
     condition = alltrue(flatten([
       for scope_key, scope in var.shared_scopes : [
-        for tc_key, tc in try(scope.tc_sets, {}) :
-        (try(tc.url, "") != "" || try(tc.template, "") != "")
+        for terms_key, term in try(scope.terms_config.terms, {}) :
+        (trimspace(try(term.title, "")) != "" && try(term.url, "") != "")
       ]
     ]))
-    error_message = "shared_scopes[*].tc_sets[*] must have at least one of url or template."
+    error_message = "shared_scopes[*].terms_config[*] must include non-empty title and url."
   }
 
   validation {
     condition = alltrue(flatten([
       for scope_key, scope in var.shared_scopes : [
-        for tc_key, tc in try(scope.tc_sets, {}) : 
-        can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trimspace(tostring(tc.version))))
+        for terms_key, term in try(scope.terms_config.terms, {}) : 
+        can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trimspace(tostring(term.version))))
       ]
     ]))
-    error_message = "shared_scopes[*].tc_sets[*].version must be a date in YYYY-MM-DD format."
+    error_message = "shared_scopes[*].terms_config[*].version must be a date in YYYY-MM-DD format."
   }
 }
 
@@ -165,13 +166,14 @@ variable "clients" {
     scopes = optional(map(object({
       description = optional(string, "")
 
-      tc_sets = optional(map(object({
-        required = bool
-        version  = string
-        title    = optional(string)
-        url      = optional(string)
-        template = optional(string)
-      })), {})
+      terms_config = optional(object({
+        terms = optional(map(object({
+          required = bool
+          version  = string
+          title    = string
+          url      = optional(string)
+        })), {})
+      }), { terms = {} })
     })), {})
 
     default_scopes = optional(list(string), [])
@@ -205,36 +207,36 @@ variable "clients" {
     condition = alltrue(flatten([
       for client_key, c in var.clients : [
         for scope_key, scope in c.scopes : [
-          for tc_key, tc in try(scope.tc_sets, {}) :
-          can(regex("^[a-z0-9][a-z0-9_-]*$", tc_key))
+          for terms_key, term in try(scope.terms_config.terms, {}) :
+          can(regex("^[a-z0-9][a-z0-9_-]*$", terms_key))
         ]
       ]
     ]))
-    error_message = "clients[*].scopes[*].tc_sets keys must match ^[a-z0-9][a-z0-9_-]*$."
+    error_message = "clients[*].scopes[*].terms_config keys must match ^[a-z0-9][a-z0-9_-]*$."
   }
 
   validation {
     condition = alltrue(flatten([
       for client_key, c in var.clients : [
         for scope_key, scope in c.scopes : [
-          for tc_key, tc in try(scope.tc_sets, {}) :
-          (try(tc.url, "") != "" || try(tc.template, "") != "")
+          for terms_key, term in try(scope.terms_config.terms, {}) :
+          (trimspace(try(term.title, "")) != "" && try(term.url, "") != "")
         ]
       ]
     ]))
-    error_message = "clients[*].scopes[*].tc_sets[*] must have at least one of url or template."
+    error_message = "clients[*].scopes[*].terms_config[*] must include non-empty title and url."
   }
 
   validation {
     condition = alltrue(flatten([
       for client_key, c in var.clients : [
         for scope_key, scope in c.scopes : [
-          for tc_key, tc in try(scope.tc_sets, {}) :
-          can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trimspace(tostring(tc.version))))
+          for terms_key, term in try(scope.terms_config.terms, {}) :
+          can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trimspace(tostring(term.version))))
         ]
       ]
     ]))
-    error_message = "clients[*].scopes[*].tc_sets[*].version must be a date in YYYY-MM-DD format."
+    error_message = "clients[*].scopes[*].terms_config[*].version must be a date in YYYY-MM-DD format."
   }
 
   validation {

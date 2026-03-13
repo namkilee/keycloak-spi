@@ -459,14 +459,13 @@ Bundle 은 다음 필드를 가질 수 있어야 한다.
 
 ---
 
-# 6.2 레거시 호환
+# 6.2 레거시 attribute 처리
 
-기존 `terms.<key>.*` 구조를 이미 사용 중이라면, 초기 버전에서는 아래를 지원할 수 있다.
+현재 구현은 legacy `terms.<key>.*`/`tc_*` 분산 attribute를 읽지 않는다.
 
-* 우선 `terms_config` 가 있으면 JSON 우선
-* 없으면 legacy `terms.<key>.*` 파싱
+* source of truth: `terms_config` JSON attribute 단일 키
+* legacy attribute가 남아 있어도 Required Action 계산에 사용되지 않음
 
-이 요구사항은 필수는 아니지만 운영 이행에 유리하다.
 
 ---
 
@@ -549,7 +548,7 @@ Bundle 은 다음 필드를 가질 수 있어야 한다.
 
 ## 8.3 TermsConfigParser
 
-* `terms_config` 또는 legacy attribute 파싱
+* `terms_config` 단일 JSON attribute 파싱
 
 ## 8.4 TermsAcceptanceRepository
 
@@ -713,7 +712,6 @@ Bundle 은 다음 필드를 가질 수 있어야 한다.
 
 초기 구현 이후 확장 가능한 항목들이다.
 
-* legacy attribute 구조 지원
 * 다국어 title/content
 * 감사 로그 저장
 * 관리자용 디버그 endpoint

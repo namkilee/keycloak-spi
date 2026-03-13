@@ -11,7 +11,7 @@
   function updateAcceptButton() {
     const requiredTerms = form.querySelectorAll('.term-card[data-required="true"]');
     const allRequiredChecked = Array.from(requiredTerms).every((term) => {
-      const cb = term.querySelector(".tc-checkbox");
+      const cb = term.querySelector(".terms-checkbox");
       return cb && cb.checked;
     });
 
@@ -71,7 +71,7 @@
       setPill(termEl, "load", "Loaded", false);
 
       const isRequired = termEl.getAttribute("data-required") === "true";
-      const cb = termEl.querySelector(".tc-checkbox");
+      const cb = termEl.querySelector(".terms-checkbox");
 
       if (!cb || cb.checked || !isRequired) return;
 
@@ -91,7 +91,7 @@
     const isRequired = termEl.getAttribute("data-required") === "true";
     if (!isRequired) return;
 
-    const cb = termEl.querySelector(".tc-checkbox");
+    const cb = termEl.querySelector(".terms-checkbox");
     const box = termEl.querySelector('[data-scrollbox="true"]');
     if (!cb || !box) return;
 

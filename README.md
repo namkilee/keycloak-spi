@@ -14,8 +14,8 @@
 
 1. `terms-action`
    - Required Action provider id: `terms-required-action`
-   - 클라이언트에 연결된 스코프의 `tc.<termKey>.*` 속성을 병합해 약관 UI를 렌더링
-   - 수락 결과는 사용자 attribute `tc.accepted.<clientId>.<termKey>`에 저장
+   - 클라이언트에 연결된 스코프의 `terms_config` JSON attribute를 병합해 약관 UI를 렌더링
+   - 수락 결과는 사용자 attribute `terms.accepted.<clientId>.<termKey>`에 저장
 2. `claim-mappers`
    - Protocol mapper id: `value-transform-protocol-mapper`
    - 사용자 attribute 값을 규칙에 따라 토큰 claim으로 변환
@@ -44,7 +44,7 @@ mvn -f spi-modules/pom.xml -pl terms-action,claim-mappers,userinfo-sync,access-a
   - Post Broker Login Flow에 `approval-gate-authenticator` 실행 연결
 - `keycloak-config/modules/scopes`에서:
   - 클라이언트/공유 스코프와 protocol mapper 생성
-  - `tc_sets`를 `kcadm` 스크립트로 `tc.<termKey>.*` attribute로 동기화
+  - `terms_config`를 `kcadm` 스크립트로 scope attribute `terms_config` 단일 JSON 문자열로 동기화
 
 ## 참고 문서
 

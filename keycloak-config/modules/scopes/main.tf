@@ -49,33 +49,33 @@ locals {
     ]) : item.key => item
   }
 
-  # tc payload
-  scope_tc_payloads = {
+  # terms payload
+  scope_terms_payloads = {
     for item in flatten([
       for client_key, client in var.clients : [
         for scope_key, scope in client.scopes : {
           key            = "${client_key}.${scope_key}"
           scope_key      = scope_key
-          terms_sets     = try(scope.terms_sets, null)
+          terms_config   = try(scope.terms_config, { terms = {} })
           terms_priority = tostring(try(scope.terms_priority, 100))
         }
       ]
     ]) : item.key => item
-    if item.terms_sets != null
+    if length(keys(try(item.terms_config.terms, {}))) > 0
   }
 
-  shared_scope_tc_payloads = {
+  shared_scope_terms_payloads = {
     for item in flatten([
       for scope_key, scope in var.shared_scopes : [
         {
           key            = scope_key
           scope_key      = scope_key
-          terms_sets     = try(scope.terms_sets, null)
+          terms_config   = try(scope.terms_config, { terms = {} })
           terms_priority = tostring(try(scope.terms_priority, 10))
         }
       ]
     ]) : item.key => item
-    if item.terms_sets != null
+    if length(keys(try(item.terms_config.terms, {}))) > 0
   }
 }
 
@@ -122,46 +122,46 @@ resource "keycloak_generic_protocol_mapper" "shared" {
 }
 
 locals {
-  tc_sync_client_scopes = [
-    for k, v in local.scope_tc_payloads : {
+  terms_sync_client_scopes = [
+    for k, v in local.scope_terms_payloads : {
       scope_key       = v.scope_key
       scope_id        = keycloak_openid_client_scope.scopes[k].id
       scope_name      = keycloak_openid_client_scope.scopes[k].name
-      terms_sets      = v.terms_sets
+      terms_config    = v.terms_config
       terms_priority  = v.terms_priority
     }
   ]
 
-  tc_sync_shared_scopes = [
-    for k, v in local.shared_scope_tc_payloads : {
+  terms_sync_shared_scopes = [
+    for k, v in local.shared_scope_terms_payloads : {
       scope_key       = v.scope_key
       scope_id        = keycloak_openid_client_scope.shared_scopes[k].id
       scope_name      = keycloak_openid_client_scope.shared_scopes[k].name
-      terms_sets      = v.terms_sets
+      terms_config    = v.terms_config
       terms_priority  = v.terms_priority
     }
   ]
 
-  tc_sync_payload = {
+  terms_sync_payload = {
     realm_id          = var.realm_id
-    sync_mode         = var.tc_sync.mode
-    allow_delete      = var.tc_sync.allow_delete
-    terms_prefix_root = var.tc_sync.tc_prefix_root
-    dry_run           = var.tc_sync.dry_run
-    max_retries       = var.tc_sync.max_retries
-    backoff_ms        = var.tc_sync.backoff_ms
+    sync_mode         = var.terms_sync.mode
+    allow_delete      = var.terms_sync.allow_delete
+    terms_prefix_root = var.terms_sync.terms_prefix_root
+    dry_run           = var.terms_sync.dry_run
+    max_retries       = var.terms_sync.max_retries
+    backoff_ms        = var.terms_sync.backoff_ms
 
-    client_scopes = local.tc_sync_client_scopes
-    shared_scopes = local.tc_sync_shared_scopes
+    client_scopes = local.terms_sync_client_scopes
+    shared_scopes = local.terms_sync_shared_scopes
   }
 
-  tc_sync_payload_sha = sha256(jsonencode(local.tc_sync_payload))
+  terms_sync_payload_sha = sha256(jsonencode(local.terms_sync_payload))
 }
 
-resource "null_resource" "tc_attributes_sync_all" {
+resource "null_resource" "terms_config_sync_all" {
   triggers = {
-    payload_sha  = local.tc_sync_payload_sha
-    script_rev   = var.tc_sync.script_rev
+    payload_sha  = local.terms_sync_payload_sha
+    script_rev   = var.terms_sync.script_rev
     realm_id     = var.realm_id
     keycloak_url = var.keycloak_url
     exec_mode    = var.kcadm_exec_mode
@@ -175,22 +175,22 @@ resource "null_resource" "tc_attributes_sync_all" {
       LOG_DIR="${path.root}/.tf-logs"
       mkdir -p "$LOG_DIR"
       chmod 700 "$LOG_DIR"
-      LOG="$LOG_DIR/tc_sync_all_${var.realm_id}.log"
+      LOG="$LOG_DIR/terms_sync_all_${var.realm_id}.log"
 
-      PAYLOAD="$(mktemp -t tc_sync_payload.XXXXXX.json)"
+      PAYLOAD="$(mktemp -t terms_sync_payload.XXXXXX.json)"
       cat > "$PAYLOAD" <<'JSON'
-${jsonencode(local.tc_sync_payload)}
+${jsonencode(local.terms_sync_payload)}
 JSON
 
       export TERMS_SYNC_PAYLOAD_FILE="$PAYLOAD"
 
-      /bin/bash "${path.module}/scripts/tc/tc_sync_scopes.sh" >"$LOG" 2>&1 || {
+      /bin/bash "${path.module}/scripts/terms/terms_sync_scopes.sh" >"$LOG" 2>&1 || {
         rc=$?
-        echo "[TF] tc sync failed; see log: $LOG" >&2
+        echo "[TF] terms sync failed; see log: $LOG" >&2
         exit "$rc"
       }
 
-      echo "[TF] tc sync ok; see log: $LOG" >&2
+      echo "[TF] terms sync ok; see log: $LOG" >&2
     EOT
 
     environment = {

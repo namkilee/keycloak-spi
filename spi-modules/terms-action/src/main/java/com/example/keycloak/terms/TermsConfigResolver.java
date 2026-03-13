@@ -2,8 +2,8 @@ package com.example.keycloak.terms;
 
 import com.example.keycloak.terms.TermsModels.Term;
 import com.example.keycloak.terms.TermsModels.TermsBundle;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jboss.logging.Logger;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.ClientScopeModel;
 
@@ -15,6 +15,7 @@ import java.util.Map;
 
 public final class TermsConfigResolver {
 
+  private static final Logger LOG = Logger.getLogger(TermsConfigResolver.class);
   private static final String ATTR_TERMS_CONFIG = "terms_config";
   private static final String ATTR_PRIORITY = "terms_priority";
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -37,14 +38,12 @@ public final class TermsConfigResolver {
       ClientScopeModel scope = sp.scope();
       int prio = sp.priority();
 
-      Map<String, ScopeTermConfig> scopeTerms = parseTermsConfig(scope, client);
+      List<ScopeTermConfig> scopeTerms = parseTermsConfig(scope, client);
       if (scopeTerms.isEmpty()) continue;
 
-      for (var entry : scopeTerms.entrySet()) {
-        String termKey = entry.getKey();
-        ScopeTermConfig cfg = entry.getValue();
-
-        Term t = toTerm(termKey, cfg, client, scope);
+      for (ScopeTermConfig cfg : scopeTerms) {
+        Term t = toTerm(cfg, client, scope);
+        String termKey = t.key();
 
         TermWithPriority existing = merged.get(termKey);
         if (existing == null) {
@@ -77,17 +76,18 @@ public final class TermsConfigResolver {
     return new TermsBundle(List.copyOf(terms));
   }
 
-  private static Map<String, ScopeTermConfig> parseTermsConfig(ClientScopeModel scope, ClientModel client) {
+  private static List<ScopeTermConfig> parseTermsConfig(ClientScopeModel scope, ClientModel client) {
     String raw = trimToEmpty(scope.getAttribute(ATTR_TERMS_CONFIG));
-    if (raw.isBlank()) return Map.of();
+    if (raw.isBlank()) return List.of();
 
     try {
-      Map<String, ScopeTermConfig> parsed = MAPPER.readValue(
-          raw,
-          new TypeReference<Map<String, ScopeTermConfig>>() {}
-      );
-      return parsed == null ? Map.of() : parsed;
+      TermsConfigPayload payload = MAPPER.readValue(raw, TermsConfigPayload.class);
+      if (payload == null || payload.terms == null) {
+        return List.of();
+      }
+      return payload.terms;
     } catch (Exception e) {
+      LOG.errorf(e, "Invalid terms_config JSON in scope '%s' for client '%s'", safe(scope.getName()), client.getClientId());
       throw new IllegalStateException(
           "Invalid terms_config JSON in scope '" + safe(scope.getName()) +
               "' for client '" + client.getClientId() + "': " + e.getMessage(),
@@ -96,8 +96,9 @@ public final class TermsConfigResolver {
     }
   }
 
-  private static Term toTerm(String termKey, ScopeTermConfig cfg, ClientModel client, ClientScopeModel scope) {
-    if (termKey == null || termKey.isBlank()) {
+  private static Term toTerm(ScopeTermConfig cfg, ClientModel client, ClientScopeModel scope) {
+    String termKey = trimToEmpty(cfg.key);
+    if (termKey.isBlank()) {
       throw new IllegalStateException(
           "Invalid term key in scope '" + safe(scope.getName()) +
               "' for client '" + client.getClientId() + "'."
@@ -150,11 +151,15 @@ public final class TermsConfigResolver {
     }
   }
 
+  public static final class TermsConfigPayload {
+    public List<ScopeTermConfig> terms;
+  }
+
   public static final class ScopeTermConfig {
+    public String key;
     public String title;
     public Boolean required;
     public String version;
     public String url;
-    public String template;
   }
 }

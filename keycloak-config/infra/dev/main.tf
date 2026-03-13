@@ -12,6 +12,7 @@ module "realm_clients" {
 
   clients = var.clients
   shared_scopes = var.shared_scopes
+  terms_sync    = var.terms_sync
 
   approval_portal_url = var.approval_portal_url
 

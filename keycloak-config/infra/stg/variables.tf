@@ -67,13 +67,14 @@ variable "clients" {
     login_theme      = optional(string, "AAP")
     scopes = map(object({
       description = optional(string, "")
-      terms_attributes = optional(object({
-        required = bool
-        version  = string
-        url      = optional(string)
-        template = optional(string)
-        key      = optional(string)
-      }))
+      terms_config = optional(object({
+        terms = optional(map(object({
+          required = bool
+          version  = string
+          title    = string
+          url      = optional(string)
+        })), {})
+      }), { terms = {} })
     }))
     default_scopes = list(string)
     mappers = list(object({
@@ -117,13 +118,14 @@ variable "shared_scopes" {
       config          = map(string)
     })), [])
 
-    tc_sets = optional(map(object({
-      required = bool
-      version  = string
-      url      = optional(string)
-      template = optional(string)
-      key      = optional(string)
-    })))
+    terms_config = optional(object({
+      terms = optional(map(object({
+        required = bool
+        version  = string
+        title    = string
+        url      = optional(string)
+      })), {})
+    }), { terms = {} })
   }))
 
   default     = {}

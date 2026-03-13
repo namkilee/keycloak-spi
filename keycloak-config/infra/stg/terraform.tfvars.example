@@ -46,10 +46,15 @@ clients = {
     scopes = {
       terms = {
         description = "Terms & Conditions"
-        terms_attributes = {
-          required = true
-          version  = "2026-01-16"
-          url      = "https://example.com/privacy"
+        terms_config = {
+          terms = {
+            privacy = {
+              title    = "개인정보 처리방침"
+              required = true
+              version  = "2026-01-16"
+              url      = "https://example.com/privacy"
+            }
+          }
         }
       }
 
