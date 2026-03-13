@@ -146,7 +146,7 @@ locals {
     realm_id          = var.realm_id
     sync_mode         = var.tc_sync.mode
     allow_delete      = var.tc_sync.allow_delete
-    terms_prefix_root = var.tc_sync.tc_prefix_root
+    terms_prefix_root = var.tc_sync.terms_prefix_root
     dry_run           = var.tc_sync.dry_run
     max_retries       = var.tc_sync.max_retries
     backoff_ms        = var.tc_sync.backoff_ms

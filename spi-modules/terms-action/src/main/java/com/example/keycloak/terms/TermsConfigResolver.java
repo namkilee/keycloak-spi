@@ -86,7 +86,23 @@ public final class TermsConfigResolver {
           raw,
           new TypeReference<Map<String, ScopeTermConfig>>() {}
       );
-      return parsed == null ? Map.of() : parsed;
+      if (parsed == null) {
+        throw new IllegalStateException(
+            "Invalid terms_config JSON in scope '" + safe(scope.getName()) +
+                "' for client '" + client.getClientId() + "': payload is null."
+        );
+      }
+
+      for (Map.Entry<String, ScopeTermConfig> e : parsed.entrySet()) {
+        if (e.getValue() == null) {
+          throw new IllegalStateException(
+              "Invalid term config (null object) for key='" + e.getKey() + "' " +
+                  "in scope '" + safe(scope.getName()) + "' for client '" + client.getClientId() + "'."
+          );
+        }
+      }
+
+      return parsed;
     } catch (Exception e) {
       throw new IllegalStateException(
           "Invalid terms_config JSON in scope '" + safe(scope.getName()) +
