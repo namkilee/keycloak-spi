@@ -41,7 +41,11 @@ public class TermsRequiredActionProvider implements RequiredActionProvider {
   public void evaluateTriggers(RequiredActionContext context) {
     UserModel user = context.getUser();
     AuthenticationSessionModel authSession = context.getAuthenticationSession();
-    ClientModel client = authSession.getClient();
+    ClientModel client = authSession != null ? authSession.getClient() : null;
+
+    if (user == null || client == null) {
+      return;
+    }
 
     TermsBundle bundle = resolver.resolve(client);
     List<Term> terms = (bundle == null || bundle.terms() == null) ? List.of() : bundle.terms();
@@ -54,7 +58,12 @@ public class TermsRequiredActionProvider implements RequiredActionProvider {
 
     if (missingRequired) {
       user.addRequiredAction(TermsRequiredActionFactory.PROVIDER_ID);
+      authSession.addRequiredAction(TermsRequiredActionFactory.PROVIDER_ID);
+      return;
     }
+
+    user.removeRequiredAction(TermsRequiredActionFactory.PROVIDER_ID);
+    authSession.removeRequiredAction(TermsRequiredActionFactory.PROVIDER_ID);
   }
 
   @Override

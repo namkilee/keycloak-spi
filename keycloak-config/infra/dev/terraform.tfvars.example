@@ -16,7 +16,7 @@ approval_portal_url = "https://approval.dev.example.com"
 shared_scopes = {
   shared-terms-base = {
     description = "Shared terms bundle: base (tos/privacy)"
-    tc_sets = {
+    terms_sets = {
       tos = {
         title    = "서비스 이용약관"
         required = true
@@ -73,7 +73,7 @@ clients = {
     scopes = {
       terms-override = {
         description = "Service A specific terms overrides/additions"
-        tc_sets = {
+        terms_sets = {
           tos = {
             title    = "서비스A 이용약관"
             required = true
@@ -142,7 +142,7 @@ clients = {
     scopes = {
       terms = {
         description = "Terms & Conditions"
-        tc_sets = {
+        terms_sets = {
           privacy = {
             required = true
             version  = "2026-01-16"
@@ -219,7 +219,7 @@ saml_idp_mappers = [
   }
 ]
 
-tc_sync = {
+terms_sync = {
   mode          = "replace"   # "replace" 또는 "merge"
   allow_delete  = true        # prd 초기엔 false로 시작 추천
   terms_prefix_root = "terms"

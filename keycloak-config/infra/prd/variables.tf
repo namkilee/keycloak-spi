@@ -117,7 +117,7 @@ variable "shared_scopes" {
       config          = map(string)
     })), [])
 
-    tc_sets = optional(map(object({
+    terms_sets = optional(map(object({
       required = bool
       version  = string
       url      = optional(string)

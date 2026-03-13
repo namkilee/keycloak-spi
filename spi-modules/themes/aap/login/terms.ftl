@@ -64,8 +64,8 @@
 
                 <div class="term-head">
                   <input
-                    id="tc-${termKey}"
-                    class="tc-checkbox"
+                    id="terms-${termKey}"
+                    class="terms-checkbox"
                     type="checkbox"
                     name="accepted"
                     value="${termKey}"
@@ -75,7 +75,7 @@
 
                   <div class="term-main">
                     <div class="term-title-row">
-                      <label for="tc-${termKey}" class="term-title">${termTitle}</label>
+                      <label for="terms-${termKey}" class="term-title">${termTitle}</label>
 
                       <#if isRequired>
                         <span class="badge badge-required">${msg("required","Required")}</span>

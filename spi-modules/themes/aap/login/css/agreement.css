@@ -105,14 +105,14 @@ body{
   align-items: flex-start;
 }
 
-.tc-checkbox{
+.terms-checkbox{
   width: 18px;
   height: 18px;
   margin-top: 3px;
   accent-color: var(--aap-blue);
 }
 
-.tc-checkbox:disabled{
+.terms-checkbox:disabled{
   opacity: .45;
   cursor: not-allowed;
 }
