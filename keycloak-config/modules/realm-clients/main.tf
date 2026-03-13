@@ -3,7 +3,7 @@ locals {
     for client_key, client in var.clients : client_key => merge(client, {
       scopes = {
         for scope_key, scope in client.scopes : scope_key => merge(scope, {
-          terms_sets = try(scope.terms_sets, {})
+          terms_config = try(scope.terms_config, { terms = {} })
         })
       }
     })
@@ -11,7 +11,7 @@ locals {
 
   shared_scopes_for_scopes = {
     for scope_key, scope in var.shared_scopes : scope_key => merge(scope, {
-      terms_sets = try(scope.terms_sets, {})
+      terms_config = try(scope.terms_config, { terms = {} })
     })
   }
 }

@@ -118,13 +118,14 @@ variable "shared_scopes" {
       config          = map(string)
     })), [])
 
-    terms_sets = optional(map(object({
-      required = bool
-      version  = string
-      title    = optional(string)
-      url      = optional(string)
-      template = optional(string)
-    })), {})
+    terms_config = optional(object({
+      terms = optional(map(object({
+        required = bool
+        version  = string
+        title    = string
+        url      = optional(string)
+      })), {})
+    }), { terms = {} })
   }))
 
   default     = {}
@@ -138,31 +139,31 @@ variable "shared_scopes" {
   validation {
     condition = alltrue(flatten([
       for scope_key, scope in var.shared_scopes : [
-        for terms_key, term in try(scope.terms_sets, {}) :
+        for terms_key, term in try(scope.terms_config.terms, {}) :
         can(regex("^[a-z0-9][a-z0-9_-]*$", terms_key))
       ]
     ]))
-    error_message = "shared_scopes[*].terms_sets keys must match ^[a-z0-9][a-z0-9_-]*$."
+    error_message = "shared_scopes[*].terms_config keys must match ^[a-z0-9][a-z0-9_-]*$."
   }
 
   validation {
     condition = alltrue(flatten([
       for scope_key, scope in var.shared_scopes : [
-        for terms_key, term in try(scope.terms_sets, {}) :
-        (try(term.url, "") != "" || try(term.template, "") != "")
+        for terms_key, term in try(scope.terms_config.terms, {}) :
+        (trimspace(try(term.title, "")) != "" && try(term.url, "") != "")
       ]
     ]))
-    error_message = "shared_scopes[*].terms_sets[*] must have at least one of url or template."
+    error_message = "shared_scopes[*].terms_config[*] must include non-empty title and url."
   }
 
   validation {
     condition = alltrue(flatten([
       for scope_key, scope in var.shared_scopes : [
-        for terms_key, term in try(scope.terms_sets, {}) :
+        for terms_key, term in try(scope.terms_config.terms, {}) :
         can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trimspace(tostring(term.version))))
       ]
     ]))
-    error_message = "shared_scopes[*].terms_sets[*].version must be a date in YYYY-MM-DD format."
+    error_message = "shared_scopes[*].terms_config[*].version must be a date in YYYY-MM-DD format."
   }
 }
 
@@ -187,13 +188,14 @@ variable "clients" {
       description    = optional(string, "")
       terms_priority = optional(number, 100)
 
-      terms_sets = optional(map(object({
-        required = bool
-        version  = string
-        title    = optional(string)
-        url      = optional(string)
-        template = optional(string)
-      })), {})
+      terms_config = optional(object({
+        terms = optional(map(object({
+          required = bool
+          version  = string
+          title    = string
+          url      = optional(string)
+        })), {})
+      }), { terms = {} })
     })), {})
 
     default_scopes = optional(list(string), [])
@@ -227,36 +229,36 @@ variable "clients" {
     condition = alltrue(flatten([
       for client_key, c in var.clients : [
         for scope_key, scope in c.scopes : [
-          for terms_key, term in try(scope.terms_sets, {}) :
+          for terms_key, term in try(scope.terms_config.terms, {}) :
           can(regex("^[a-z0-9][a-z0-9_-]*$", terms_key))
         ]
       ]
     ]))
-    error_message = "clients[*].scopes[*].terms_sets keys must match ^[a-z0-9][a-z0-9_-]*$."
+    error_message = "clients[*].scopes[*].terms_config keys must match ^[a-z0-9][a-z0-9_-]*$."
   }
 
   validation {
     condition = alltrue(flatten([
       for client_key, c in var.clients : [
         for scope_key, scope in c.scopes : [
-          for terms_key, term in try(scope.terms_sets, {}) :
-          (try(term.url, "") != "" || try(term.template, "") != "")
+          for terms_key, term in try(scope.terms_config.terms, {}) :
+          (trimspace(try(term.title, "")) != "" && try(term.url, "") != "")
         ]
       ]
     ]))
-    error_message = "clients[*].scopes[*].terms_sets[*] must have at least one of url or template."
+    error_message = "clients[*].scopes[*].terms_config[*] must include non-empty title and url."
   }
 
   validation {
     condition = alltrue(flatten([
       for client_key, c in var.clients : [
         for scope_key, scope in c.scopes : [
-          for terms_key, term in try(scope.terms_sets, {}) :
+          for terms_key, term in try(scope.terms_config.terms, {}) :
           can(regex("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", trimspace(tostring(term.version))))
         ]
       ]
     ]))
-    error_message = "clients[*].scopes[*].terms_sets[*].version must be a date in YYYY-MM-DD format."
+    error_message = "clients[*].scopes[*].terms_config[*].version must be a date in YYYY-MM-DD format."
   }
 
   validation {
