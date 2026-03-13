@@ -28,9 +28,9 @@ trap 'rc=$?;
 # =========================
 : "${KCADM_PATH:=/opt/bitnami/keycloak/bin/kcadm.sh}"  # ✅ must be executable, not a dir
 
-TC_PREFIX_ROOT="${TC_PREFIX_ROOT:-tc}"
-SYNC_MODE="${SYNC_MODE:-replace}"   # replace = tc.<scopeName>.* 삭제 후 재작성
-PREFIX="${TC_PREFIX_ROOT}.${SCOPE_NAME}."
+TERMS_PREFIX_ROOT="${TERMS_PREFIX_ROOT:-terms}"
+SYNC_MODE="${SYNC_MODE:-replace}"   # replace = terms.<scopeName>.* 삭제 후 재작성
+PREFIX="${TERMS_PREFIX_ROOT}.${SCOPE_NAME}."
 
 # TLS truststore mode:
 KEYCLOAK_TLS_MODE="${KEYCLOAK_TLS_MODE:-truststore}"   # truststore|off
@@ -275,10 +275,10 @@ attrs = current.get("attributes") or {}
 if not isinstance(attrs, dict):
     attrs = {}
 
-# replace 모드: 레거시 prefix 키들 삭제 + tc.terms 재작성
+# replace 모드: 레거시 prefix 키들 삭제 + terms.terms 재작성
 if mode == "replace":
     attrs = {k: v for k, v in attrs.items() if not str(k).startswith(prefix)}
-    attrs.pop("tc.terms", None)
+    attrs.pop("terms.terms", None)
 
 terms = []
 for term_key, cfg in (terms_sets or {}).items():
@@ -298,7 +298,7 @@ for term_key, cfg in (terms_sets or {}).items():
         "required": required,
     })
 
-attrs["tc.terms"] = json.dumps(terms, ensure_ascii=False)
+attrs["terms.terms"] = json.dumps(terms, ensure_ascii=False)
 payload["attributes"] = attrs
 print(json.dumps(payload, ensure_ascii=False))
 PY
@@ -326,7 +326,7 @@ kc_kcadm_capture --allow-empty UPDATE_OUT update "client-scopes/${SCOPE_ID}" -r 
 # =========================
 kc_kcadm_capture UPDATED_JSON get "client-scopes/${SCOPE_ID}" -r "${REALM_ID}"
 
-UPDATED_TC_TERMS="$(
+UPDATED_TERMS="$(
   printf '%s' "$UPDATED_JSON" |
   python3 -c 'import sys, json
 s = sys.stdin.read().strip()
@@ -334,19 +334,19 @@ if not s or s[0] not in "{[":
   raise SystemExit(f"ERROR: expected JSON from kcadm but got:\n{s[:800]}")
 cur = json.loads(s)
 attrs = cur.get("attributes") or {}
-print(attrs.get("tc.terms","") or "")
+print(attrs.get("terms.terms","") or "")
 '
 )"
 
-if [ -z "${UPDATED_TC_TERMS}" ]; then
-  echo "ERROR: tc.terms missing after update (update may have failed or ignored)" >&2
+if [ -z "${UPDATED_TERMS}" ]; then
+  echo "ERROR: terms.terms missing after update (update may have failed or ignored)" >&2
   exit 1
 fi
 
-log "[OK] tc.terms updated"
-dbg "tc.terms(first 200 chars)=$(echo "${UPDATED_TC_TERMS}" | head -c 200)"
+log "[OK] terms.terms updated"
+dbg "terms.terms(first 200 chars)=$(echo "${UPDATED_TERMS}" | head -c 200)"
 
-echo "Synced terms to attribute tc.terms (mode=${SYNC_MODE})"
+echo "Synced terms to attribute terms.terms (mode=${SYNC_MODE})"
 echo "Legacy prefix cleanup applied: ${PREFIX} (mode=replace only)"
 echo "Scope: id=${SCOPE_ID}, key=${SCOPE_KEY}, name=${SCOPE_NAME}"
 echo "Updated JSON path: ${KC_UPDATED_JSON_PATH} (inside ${KCADM_EXEC_MODE} runtime)"

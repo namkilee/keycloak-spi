@@ -9,7 +9,7 @@ import java.util.Objects;
 
 public class TermsAcceptanceStore {
 
-  // key format: tc.accepted.<clientId>.<termKey>
+  // key format: terms.accepted.<clientId>.<termKey>
   public boolean isAccepted(UserModel user, ClientModel client, Term term) {
     String currentVersion = term.version();
     if (currentVersion == null || currentVersion.isBlank()) return false;
@@ -36,10 +36,10 @@ public class TermsAcceptanceStore {
     user.setSingleAttribute(key(client, term), value);
 
     // optional convenience: per-client last accepted time
-    user.setSingleAttribute("tc.accepted." + client.getClientId() + ".__lastAcceptedAt", Instant.now().toString());
+    user.setSingleAttribute("terms.accepted." + client.getClientId() + ".__lastAcceptedAt", Instant.now().toString());
   }
 
   private String key(ClientModel client, Term term) {
-    return "tc.accepted." + client.getClientId() + "." + term.key();
+    return "terms.accepted." + client.getClientId() + "." + term.key();
   }
 }

@@ -7,7 +7,7 @@ set -Eeuo pipefail
 : "${KEYCLOAK_AUTH_REALM:?}"
 : "${KEYCLOAK_CLIENT_ID:?}"
 : "${KEYCLOAK_CLIENT_SECRET:?}"
-: "${TC_SYNC_PAYLOAD_FILE:?}"
+: "${TERMS_SYNC_PAYLOAD_FILE:?}"
 
 KEYCLOAK_CONTAINER_NAME="${KEYCLOAK_CONTAINER_NAME:-}"
 KEYCLOAK_NAMESPACE="${KEYCLOAK_NAMESPACE:-}"
@@ -64,16 +64,16 @@ PY
 }
 
 # ---- Load plan
-PLAN="$(mktemp -t temrs_plan.XXXXXX.json)"
+PLAN="$(mktemp -t terms_plan.XXXXXX.json)"
 python3 - <<'PY' >"$PLAN"
 import json
-p=json.load(open("${TC_SYNC_PAYLOAD_FILE}","r",encoding="utf-8"))
+p=json.load(open("${TERMS_SYNC_PAYLOAD_FILE}","r",encoding="utf-8"))
 
 plan={
   "realm_id": p["realm_id"],
   "sync_mode": p.get("sync_mode","replace"),
   "allow_delete": bool(p.get("allow_delete", True)),
-  "temrs_prefix_root": p.get("temrs_prefix_root","tc"),
+  "terms_prefix_root": p.get("terms_prefix_root","terms"),
   "dry_run": bool(p.get("dry_run", False)),
   "max_retries": int(p.get("max_retries", 5)),
   "backoff_ms": int(p.get("backoff_ms", 400)),
@@ -98,12 +98,12 @@ PY
 REALM_ID="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["realm_id"])')"
 SYNC_MODE="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["sync_mode"])')"
 ALLOW_DELETE="$(python3 -c 'import json;print("true" if json.load(open("'"$PLAN"'"))["allow_delete"] else "false")')"
-TC_PREFIX_ROOT="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["temrs_prefix_root"])')"
+TERMS_PREFIX_ROOT="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["terms_prefix_root"])')"
 DRY_RUN="$(python3 -c 'import json;print("true" if json.load(open("'"$PLAN"'"))["dry_run"] else "false")')"
 MAX_RETRIES="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["max_retries"])')"
 BACKOFF_MS="$(python3 -c 'import json;print(json.load(open("'"$PLAN"'"))["backoff_ms"])')"
 
-log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TC_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS"
+log "Plan: realm=$REALM_ID mode=$SYNC_MODE allow_delete=$ALLOW_DELETE prefix=$TERMS_PREFIX_ROOT dry_run=$DRY_RUN retries=$MAX_RETRIES backoff_ms=$BACKOFF_MS"
 
 # ---- Login
 log "Login via kcadm..."
@@ -125,7 +125,7 @@ update_scope_attributes() {
 }
 
 # ---- Build desired map
-DESIRED="$(mktemp -t temrs_desired.XXXXXX.json)"
+DESIRED="$(mktemp -t terms_desired.XXXXXX.json)"
 python3 - <<'PY' >"$DESIRED"
 import json
 plan=json.load(open("'"$PLAN"'"))
@@ -140,7 +140,7 @@ print(json.dumps(m, ensure_ascii=False))
 PY
 
 # ---- Iterate scope ids
-IDS="$(mktemp -t temrs_ids.XXXXXX.txt)"
+IDS="$(mktemp -t terms_ids.XXXXXX.txt)"
 python3 - <<'PY' >"$IDS"
 import json
 plan=json.load(open("'"$PLAN"'"))
@@ -151,15 +151,15 @@ PY
 process_one_scope() {
   local scope_id="$1"
   local cur upd
-  cur="$(mktemp -t temrs_cur.XXXXXX.json)"
-  upd="$(mktemp -t temrs_upd.XXXXXX.json)"
+  cur="$(mktemp -t terms_cur.XXXXXX.json)"
+  upd="$(mktemp -t terms_upd.XXXXXX.json)"
 
   if ! with_retry "$MAX_RETRIES" "$BACKOFF_MS" bash -lc "get_scope_json '$scope_id' > '$cur'"; then
     log "ERROR: fetch failed scope_id=$scope_id"
     return 1
   fi
 
-  python3 - <<'PY' "$cur" "$DESIRED" "$scope_id" "$TC_PREFIX_ROOT" "$SYNC_MODE" "$ALLOW_DELETE" >"$upd"
+  python3 - <<'PY' "$cur" "$DESIRED" "$scope_id" "$TERMS_PREFIX_ROOT" "$SYNC_MODE" "$ALLOW_DELETE" >"$upd"
 import json, sys
 cur=json.load(open(sys.argv[1]))
 desired=json.load(open(sys.argv[2]))
@@ -176,15 +176,15 @@ if not d:
 cur_attrs=cur.get("attributes") or {}
 terms_sets=d.get("terms_sets") or {}
 
-def k(temrs_key, field): return f"{prefix}.{temrs_key}.{field}"
+def k(terms_key, field): return f"{prefix}.{terms_key}.{field}"
 
-desired_tc={}
-for temrs_key, tc in terms_sets.items():
-  desired_tc[k(temrs_key,"required")] = "true" if tc.get("required") else "false"
-  desired_tc[k(temrs_key,"version")]  = str(tc.get("version",""))
-  if tc.get("title"):    desired_tc[k(temrs_key,"title")]    = str(tc["title"])
-  if tc.get("url"):      desired_tc[k(temrs_key,"url")]      = str(tc["url"])
-  if tc.get("template"): desired_tc[k(temrs_key,"template")] = str(tc["template"])
+desired_terms={}
+for terms_key, term in terms_sets.items():
+  desired_terms[k(terms_key,"required")] = "true" if term.get("required") else "false"
+  desired_terms[k(terms_key,"version")]  = str(term.get("version",""))
+  if term.get("title"):    desired_terms[k(terms_key,"title")]    = str(term["title"])
+  if term.get("url"):      desired_terms[k(terms_key,"url")]      = str(term["url"])
+  if term.get("template"): desired_terms[k(terms_key,"template")] = str(term["template"])
 
 new_attrs=dict(cur_attrs)
 
@@ -193,10 +193,10 @@ if mode=="replace":
     for kk in list(new_attrs.keys()):
       if kk.startswith(prefix+"."):
         new_attrs.pop(kk, None)
-  for kk,vv in desired_tc.items():
+  for kk,vv in desired_terms.items():
     new_attrs[kk]=vv
 else:
-  for kk,vv in desired_tc.items():
+  for kk,vv in desired_terms.items():
     new_attrs[kk]=vv
 
 print(json.dumps({"attributes": new_attrs}, ensure_ascii=False))

@@ -13,7 +13,7 @@
 - `modules/scopes`
   - client-specific / shared OpenID client scope 생성
   - generic protocol mapper 생성
-  - `tc_sets`를 `kcadm` 기반 스크립트로 scope attribute(`tc.<termKey>.*`) 동기화
+  - `terms_sets`를 `kcadm` 기반 스크립트로 scope attribute(`terms.<termKey>.*`) 동기화
 - `modules/realm-userinfo-sync`
   - realm attribute `userinfosync.*` 출력값 생성
 - `infra/bootstrap`
@@ -25,16 +25,16 @@
 
 ## 핵심 동작
 
-### 1) 약관 데이터(`tc_sets`) 동기화
+### 1) 약관 데이터(`terms_sets`) 동기화
 
-`clients[*].scopes[*].tc_sets` 및 `shared_scopes[*].tc_sets`를 선언하면,
-`modules/scopes`가 JSON payload를 만들어 스크립트(`modules/scopes/scripts/tc/tc_sync_scopes.sh`)를 실행한다.
+`clients[*].scopes[*].terms_sets` 및 `shared_scopes[*].terms_sets`를 선언하면,
+`modules/scopes`가 JSON payload를 만들어 스크립트(`modules/scopes/scripts/terms/terms_sync_scopes.sh`)를 실행한다.
 
 실행 모드:
 - dev: `docker exec`
 - stg/prd: `kubectl exec`
 
-결과적으로 client scope attribute는 `tc.<termKey>.<field>` 형태로 기록되며,
+결과적으로 client scope attribute는 `terms.<termKey>.<field>` 형태로 기록되며,
 `terms-action` SPI가 이를 읽는다.
 
 ### 2) 승인 게이트(Access Approval)

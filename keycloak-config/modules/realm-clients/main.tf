@@ -1,9 +1,28 @@
+locals {
+  clients_for_scopes = {
+    for client_key, client in var.clients : client_key => merge(client, {
+      scopes = {
+        for scope_key, scope in client.scopes : scope_key => merge(scope, {
+          terms_sets = try(scope.terms_sets, {})
+        })
+      }
+    })
+  }
+
+  shared_scopes_for_scopes = {
+    for scope_key, scope in var.shared_scopes : scope_key => merge(scope, {
+      terms_sets = try(scope.terms_sets, {})
+    })
+  }
+}
+
 module "client_scopes" {
   source = "../scopes"
 
   realm_id      = var.realm_id
-  clients       = var.clients
-  shared_scopes = var.shared_scopes
+  clients       = local.clients_for_scopes
+  shared_scopes = local.shared_scopes_for_scopes
+  terms_sync   = var.terms_sync
 
   keycloak_url            = var.keycloak_url
   keycloak_auth_realm     = var.keycloak_auth_realm
