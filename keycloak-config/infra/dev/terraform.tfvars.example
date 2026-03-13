@@ -16,24 +16,26 @@ approval_portal_url = "https://approval.dev.example.com"
 shared_scopes = {
   shared-terms-base = {
     description = "Shared terms bundle: base (tos/privacy)"
-    terms_sets = {
-      tos = {
-        title    = "서비스 이용약관"
-        required = true
-        version  = "2026-02-06"
-        url      = "https://example.com/terms/tos"
-      }
-      privacy = {
-        title    = "개인정보 처리방침"
-        required = true
-        version  = "2026-02-01"
-        url      = "https://example.com/terms/privacy"
-      }
-      mkt = {
-        title    = "마케팅 수신동의"
-        required = false
-        version  = "2026-01-01"
-        url      = "https://example.com/terms/mkt"
+    terms_config = {
+      terms = {
+        tos = {
+          title    = "서비스 이용약관"
+          required = true
+          version  = "2026-02-06"
+          url      = "https://example.com/terms/tos"
+        }
+        privacy = {
+          title    = "개인정보 처리방침"
+          required = true
+          version  = "2026-02-01"
+          url      = "https://example.com/terms/privacy"
+        }
+        mkt = {
+          title    = "마케팅 수신동의"
+          required = false
+          version  = "2026-01-01"
+          url      = "https://example.com/terms/mkt"
+        }
       }
     }
   },
@@ -73,18 +75,20 @@ clients = {
     scopes = {
       terms-override = {
         description = "Service A specific terms overrides/additions"
-        terms_sets = {
-          tos = {
-            title    = "서비스A 이용약관"
-            required = true
-            version  = "2026-03-01"
-            url      = "https://service-a.example.com/legal/tos"
-          }
-          service_a_extra = {
-            title    = "서비스A 추가 약관"
-            required = true
-            version  = "2026-02-10"
-            url      = "https://service-a.example.com/legal/extra"
+        terms_config = {
+          terms = {
+            tos = {
+              title    = "서비스A 이용약관"
+              required = true
+              version  = "2026-03-01"
+              url      = "https://service-a.example.com/legal/tos"
+            }
+            service_a_extra = {
+              title    = "서비스A 추가 약관"
+              required = true
+              version  = "2026-02-10"
+              url      = "https://service-a.example.com/legal/extra"
+            }
           }
         }
       }
@@ -142,10 +146,14 @@ clients = {
     scopes = {
       terms = {
         description = "Terms & Conditions"
-        terms_sets = {
-          privacy = {
-            required = true
-            version  = "2026-01-16"
+        terms_config = {
+          terms = {
+            privacy = {
+              title    = "개인정보 처리방침"
+              required = true
+              version  = "2026-01-16"
+              url      = "https://example.com/terms/privacy"
+            }
           }
         }
       }

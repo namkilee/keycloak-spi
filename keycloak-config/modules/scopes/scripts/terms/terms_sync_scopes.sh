@@ -145,7 +145,7 @@ PLAN_JSON="$(
               scope_id:       ($s.scope_id // $s.id // ""),
               scope_name:     ($s.scope_name // ""),
               scope_key:      ($s.scope_key // ""),
-              terms_sets:     (($s.terms_sets // {}) | as_object),
+              terms_config:     (($s.terms_config // {} | as_object)),
               terms_priority: ($s.terms_priority // "0" | tostring)
             })
           | map(select(.scope_id != ""))
@@ -194,17 +194,31 @@ update_scope_from_file() {
 }
 
 build_update_representation() {
-  local cur_file="$1" desired_terms_sets_json="$2" terms_priority="$3" out_file="$4" sid="$5"
+  local cur_file="$1" desired_terms_config_json="$2" terms_priority="$3" out_file="$4" sid="$5"
 
   dump_json_pretty_from_file "$cur_file" "cur.${sid}.json"
-  dump_json_pretty_from_text "desired.${sid}.json" "$desired_terms_sets_json"
+  dump_json_pretty_from_text "desired.${sid}.json" "$desired_terms_config_json"
 
   local normalized_terms_config
   normalized_terms_config="$(
     run_jq_stdin "desired_terms_config_normalize.${sid}" '
       def as_object: if type=="object" then . else {} end;
-      . | as_object
-    ' <<<"$desired_terms_sets_json" | jq -c '.'
+      . as $cfg
+      | ($cfg.terms // {} | as_object) as $terms
+      | {
+          terms: [
+            ($terms | keys[] | select(type=="string")) as $k
+            | ($terms[$k] // {} | as_object) as $v
+            | {
+                key: $k,
+                title: ($v.title // null),
+                required: ($v.required // false),
+                version: ($v.version // null),
+                url: ($v.url // null)
+              }
+          ] | sort_by(.key)
+        }
+    ' <<<"$desired_terms_config_json" | jq -c '.'
   )"
 
   local program='
@@ -419,18 +433,18 @@ for sid in "${SCOPE_IDS[@]}"; do
     ' <<<"$PLAN_JSON"
   )"
 
-  desired_terms_sets='{}'
+  desired_terms_config='{}'
   desired_terms_priority='0'
   action='SKIP'
 
   if [[ "$SCOPE_IN_PLAN" == "true" ]]; then
-    desired_terms_sets="$(
-      run_jq_stdin "desired_terms_sets_select.${sid}" '
+    desired_terms_config="$(
+      run_jq_stdin "desired_terms_config_select.${sid}" '
         def as_array:  if type=="array"  then . else [] end;
         def as_object: if type=="object" then . else {} end;
 
         (.scopes // [] | as_array)
-        | map(select(.scope_id == $sid) | (.terms_sets // {} | as_object))
+        | map(select(.scope_id == $sid) | (.terms_config // {} | as_object))
         | .[0] // {}
       ' --arg sid "$sid" <<<"$PLAN_JSON" | jq -c '.'
     )"
@@ -445,11 +459,11 @@ for sid in "${SCOPE_IDS[@]}"; do
       ' --arg sid "$sid" <<<"$PLAN_JSON" | jq -r '.'
     )"
 
-    terms_count="$(jq -r 'if type=="object" then (keys|length) else 0 end' <<<"$desired_terms_sets")"
+    terms_count="$(jq -r '((.terms // {}) | if type=="object" then (keys|length) else 0 end)' <<<"$desired_terms_config")"
     action='UPSERT'
     log "[PLAN] scope_id=$sid action=$action desired_terms=$terms_count priority=$desired_terms_priority"
   else
-    desired_terms_sets='{}'
+    desired_terms_config='{}'
     desired_terms_priority='0'
     action='UPSERT_EMPTY'
     log "[PLAN] scope_id=$sid action=$action reason=not_in_desired_plan"
@@ -458,11 +472,25 @@ for sid in "${SCOPE_IDS[@]}"; do
   normalized_terms_config="$(
     run_jq_stdin "verify_terms_config_normalize.${sid}" '
       def as_object: if type=="object" then . else {} end;
-      . | as_object
-    ' <<<"$desired_terms_sets" | jq -c '.'
+      . as $cfg
+      | ($cfg.terms // {} | as_object) as $terms
+      | {
+          terms: [
+            ($terms | keys[] | select(type=="string")) as $k
+            | ($terms[$k] // {} | as_object) as $v
+            | {
+                key: $k,
+                title: ($v.title // null),
+                required: ($v.required // false),
+                version: ($v.version // null),
+                url: ($v.url // null)
+              }
+          ] | sort_by(.key)
+        }
+    ' <<<"$desired_terms_config" | jq -c '.'
   )"
 
-  if ! build_update_representation "$cur" "$desired_terms_sets" "$desired_terms_priority" "$upd" "$sid"; then
+  if ! build_update_representation "$cur" "$desired_terms_config" "$desired_terms_priority" "$upd" "$sid"; then
     rm -f "$cur" "$upd" 2>/dev/null || true
     rc=1
     continue

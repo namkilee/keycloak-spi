@@ -56,12 +56,12 @@ locals {
         for scope_key, scope in client.scopes : {
           key            = "${client_key}.${scope_key}"
           scope_key      = scope_key
-          terms_sets     = try(scope.terms_sets, {})
+          terms_config   = try(scope.terms_config, { terms = {} })
           terms_priority = tostring(try(scope.terms_priority, 100))
         }
       ]
     ]) : item.key => item
-    if length(keys(item.terms_sets)) > 0
+    if length(keys(try(item.terms_config.terms, {}))) > 0
   }
 
   shared_scope_terms_payloads = {
@@ -70,12 +70,12 @@ locals {
         {
           key            = scope_key
           scope_key      = scope_key
-          terms_sets     = try(scope.terms_sets, {})
+          terms_config   = try(scope.terms_config, { terms = {} })
           terms_priority = tostring(try(scope.terms_priority, 10))
         }
       ]
     ]) : item.key => item
-    if length(keys(item.terms_sets)) > 0
+    if length(keys(try(item.terms_config.terms, {}))) > 0
   }
 }
 
@@ -127,7 +127,7 @@ locals {
       scope_key       = v.scope_key
       scope_id        = keycloak_openid_client_scope.scopes[k].id
       scope_name      = keycloak_openid_client_scope.scopes[k].name
-      terms_sets      = v.terms_sets
+      terms_config    = v.terms_config
       terms_priority  = v.terms_priority
     }
   ]
@@ -137,7 +137,7 @@ locals {
       scope_key       = v.scope_key
       scope_id        = keycloak_openid_client_scope.shared_scopes[k].id
       scope_name      = keycloak_openid_client_scope.shared_scopes[k].name
-      terms_sets      = v.terms_sets
+      terms_config    = v.terms_config
       terms_priority  = v.terms_priority
     }
   ]
@@ -158,7 +158,7 @@ locals {
   terms_sync_payload_sha = sha256(jsonencode(local.terms_sync_payload))
 }
 
-resource "null_resource" "terms_attributes_sync_all" {
+resource "null_resource" "terms_config_sync_all" {
   triggers = {
     payload_sha  = local.terms_sync_payload_sha
     script_rev   = var.terms_sync.script_rev
