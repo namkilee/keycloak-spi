@@ -13,4 +13,5 @@ public final class ApprovalConstants {
   public static final String RA_PROVIDER_ID = "approval-pending-action";
 
   public static final String ATTR_APPROVAL_PREFIX = "approval.";
+  public static final String ATTR_AUTO_APPROVE = "auto_approve";
 }

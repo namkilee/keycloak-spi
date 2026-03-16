@@ -18,12 +18,12 @@ public class ApprovalRequiredActionFactory implements RequiredActionFactory {
 
   @Override
   public String getDisplayText() {
-    return "Approval Pending";
+    return "Client Approval Required";
   }
 
   @Override
   public RequiredActionProvider create(KeycloakSession session) {
-    return new ApprovalRequiredActionProvider(session);
+    return new ApprovalRequiredActionProvider();
   }
 
   @Override
@@ -40,7 +40,7 @@ public class ApprovalRequiredActionFactory implements RequiredActionFactory {
 
   @Override
   public String getHelpText() {
-    return "Checks approval status from user attributes and blocks login until approved.";
+    return "Checks client-specific approval status, supports client auto-approve, and blocks login until approved.";
   }
 
   @Override
